@@ -1,6 +1,10 @@
 fastapi
 uvicorn[standard]
+httpx
 python-dotenv
 livekit-agents
-livekit-plugins-google
+livekit-plugins-assemblyai
+livekit-plugins-cartesia
+livekit-plugins-noise-cancellation
+livekit-plugins-openai
 livekit-plugins-silero
