@@ -1,0 +1,29 @@
+[
+  {
+    "id": "patient-001",
+    "name": "Aisha Khan",
+    "phone": "+1-555-0101",
+    "biomarkers": {
+      "glucose_mg_dl": 118,
+      "hba1c_percent": 6.4
+    }
+  },
+  {
+    "id": "patient-002",
+    "name": "Daniel Brooks",
+    "phone": "+1-555-0102",
+    "biomarkers": {
+      "glucose_mg_dl": 96,
+      "hba1c_percent": 5.7
+    }
+  },
+  {
+    "id": "patient-003",
+    "name": "Meera Patel",
+    "phone": "+1-555-0103",
+    "biomarkers": {
+      "glucose_mg_dl": 142,
+      "hba1c_percent": 7.1
+    }
+  }
+]

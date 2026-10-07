@@ -1,0 +1,17 @@
+[
+  {
+    "id": "slot-001",
+    "starts_at": "2026-10-12T09:00:00+05:30",
+    "duration_minutes": 30
+  },
+  {
+    "id": "slot-002",
+    "starts_at": "2026-10-12T11:30:00+05:30",
+    "duration_minutes": 30
+  },
+  {
+    "id": "slot-003",
+    "starts_at": "2026-10-13T15:00:00+05:30",
+    "duration_minutes": 30
+  }
+]
