@@ -54,11 +54,18 @@ Patient data comes from a local JSON file, and FastAPI handles only the booking 
 - Added three dummy patient records to `backend/patients.json`.
 - Added fake appointment slots to `backend/slots.json` and load them from the file at backend startup.
 - Added the FastAPI booking service with `GET /slots`, `POST /appointments`, and `GET /health`.
+- Added the Gemini Live console agent with patient-specific instructions and booking tools.
+- Simplified the agent around LiveKit's standard `AgentServer` and `@server.rtc_session()` room-worker pattern, with AssemblyAI STT, Gemini LLM, Cartesia TTS, and Silero VAD components.
+- Reduced Gemini failure impact with short responses and one bounded LLM retry using Gemini's minimum ten-second request deadline.
+- Replaced the remote Gemini LLM with a local Ollama model through LiveKit's OpenAI-compatible plugin.
+- Disabled preemptive generation and assistant barge-in so spoken responses finish before the next turn.
+- Added LiveKit BVC noise cancellation to the room microphone input.
+- Configured VAD-based barge-in with a 150 ms threshold so patient speech stops assistant playback promptly.
 
 ### Currently working on
 
-- Nothing; the dummy data and booking backend are implemented and verified.
+- Verifying the room-based voice agent with AssemblyAI, Gemini, Cartesia, and LiveKit credentials.
 
 ### Next
 
-- Build the LiveKit console voice agent and connect its booking tools to these endpoints.
+- Run the complete spoken conversation and mark the remaining Phase 1 checklist items.
