@@ -11,11 +11,11 @@ from livekit import api
 
 from voice_agent import AGENT_NAME, load_patient
 
-load_dotenv(Path(__file__).with_name(".env"))
+load_dotenv(Path(__file__).with_name(".env"), override=True)
 E164 = re.compile(r"^\+[1-9]\d{7,14}$")
 
 
-async def place_call(patient_id: str, phone_number: str) -> None:
+async def dispatch_call(patient_id: str, phone_number: str) -> str:
     load_patient(patient_id)
     missing = [
         name
@@ -41,7 +41,12 @@ async def place_call(patient_id: str, phone_number: str) -> None:
                 ),
             )
         )
-    print(f"Dispatched one call to {phone_number} in room {dispatch.room}.")
+    return dispatch.room
+
+
+async def place_call(patient_id: str, phone_number: str) -> None:
+    room_name = await dispatch_call(patient_id, phone_number)
+    print(f"Dispatched one call to {phone_number} in room {room_name}.")
     print("Watch the agent worker terminal for call progress.")
 
 

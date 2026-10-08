@@ -16,10 +16,11 @@ scores each completed call automatically.
   logged.
 - `appointment_booked` comes from the actual booking tool result, not only from
   the transcript, so the analysis can be checked against it.
-- Store each call in one folder, `backend/calls/<room>/`, containing
-  `audio.ogg` and `call.json` (metadata, transcript, tool calls); the analysis
-  step adds `analysis.json`. The trace stores the audio path as the recording
-  reference. `calls/` is git-ignored.
+- Store each call under
+  `backend/calls/<UTC date>/<patient-id>/<room>/`, containing `audio.ogg` and
+  `call.json` (metadata, transcript, tool calls); the analysis step adds
+  `analysis.json`. The trace stores the audio path as the recording reference.
+  `calls/` is git-ignored.
 - Capture the transcript live from the session's conversation items and tool
   events instead of transcribing the recording afterwards.
   Cloud storage (for example S3 with LiveKit egress) is a possible later step.
@@ -98,8 +99,10 @@ scores each completed call automatically.
 ### Completed
 
 - Added `backend/call_capture.py`, which saves each call's audio, transcript,
-  and tool calls under `backend/calls/<room>/` and is started from the agent
-  session. Verified with simulated events; a live call still needs checking.
+  and tool calls under
+  `backend/calls/<UTC date>/<patient-id>/<room>/` and is started from the
+  agent session. Verified with simulated events; a live call still needs
+  checking.
 - Added `backend/post_call_analysis.py`. It writes `analysis.json` per call in a
   detached process (LiveKit's shutdown window is only 10 seconds). It sets
   `appointment_booked` from the booking tool result and uses the local Ollama
@@ -114,6 +117,9 @@ scores each completed call automatically.
   `PII_handling`. It runs after the analysis with a three-line hook in
   `post_call_analysis.py`. Verified by
   reading traces back from Opik for a real and a simulated call.
+- Added a non-secret configuration snapshot to each `call.json`. The saved
+  model, endpoint, voice, prompt, and backend settings are used for that call's
+  post-call analysis and Opik metadata even if Developer settings change later.
 - Added a PII handling evaluation field to `analysis.json`. It checks that
   identity is confirmed before patient-specific details are shared and that no
   unnecessary personal or health information is disclosed. Booking results

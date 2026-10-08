@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).with_name(".env"))
+load_dotenv(Path(__file__).with_name(".env"), override=True)
 logger = logging.getLogger("healthcare-voice-agent")
 
 OUTCOMES = {"booked", "declined", "interested_not_booked", "undecided", "no_conversation"}
@@ -54,7 +54,11 @@ def booking_succeeded(tool_calls: list[dict[str, Any]]) -> tuple[bool, str | Non
 
 
 async def _ask_llm(call: dict[str, Any], booked: bool) -> dict[str, Any]:
-    base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1").rstrip("/")
+    config_snapshot = call.get("config_snapshot", {})
+    base_url = config_snapshot.get(
+        "ollama_base_url",
+        os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1"),
+    ).rstrip("/")
     transcript = "\n".join(f"{t['role']}: {t['text']}" for t in call["transcript"])
     tools = "\n".join(
         f"{t['name']}({t['arguments']}) -> {t['result']}" for t in call["tool_calls"]
@@ -63,7 +67,7 @@ async def _ask_llm(call: dict[str, Any], booked: bool) -> dict[str, Any]:
         response = await client.post(
             f"{base_url}/chat/completions",
             json={
-                "model": os.getenv("OLLAMA_MODEL", "qwen2.5:7b"),
+                "model": config_snapshot.get("ollama_model", os.getenv("OLLAMA_MODEL", "qwen2.5:7b")),
                 "temperature": 0,
                 "response_format": {"type": "json_object"},
                 "messages": [

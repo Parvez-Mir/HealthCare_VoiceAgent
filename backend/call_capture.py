@@ -18,14 +18,28 @@ logger = logging.getLogger("healthcare-voice-agent")
 CALLS_DIR = Path(__file__).with_name("calls")
 
 
+def _path_component(value: object, fallback: str) -> str:
+    component = str(value or fallback)
+    return "".join(character if character.isalnum() or character in "-_." else "_" for character in component)
+
+
+def call_storage_dir(metadata: dict[str, Any], room: str, started_at: float) -> Path:
+    """Return calls/<UTC date>/<patient ID>/<room>/ for one call."""
+    call_date = datetime.fromtimestamp(started_at, timezone.utc).strftime("%Y-%m-%d")
+    patient_id = _path_component(metadata.get("patient_id"), "unknown-patient")
+    session_id = _path_component(room, "unknown-session")
+    return CALLS_DIR / call_date / patient_id / session_id
+
+
 def _iso(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
 
 
 class CallCapture:
-    """Save audio and transcript under calls/<room>/. Never affects the live call.
+    """Save audio and transcript under calls/<date>/<patient>/<session>/. Never affects the live call.
 
-    Layout: audio.ogg (stereo: caller left, agent right) and call.json
+    Layout: calls/<UTC date>/<patient ID>/<room>/ with audio.ogg
+    (stereo: caller left, agent right) and call.json
     (metadata, transcript, tool calls). Later phases add analysis.json here.
 
     Create it before session.start() so no early speech is missed, then call
@@ -38,7 +52,7 @@ class CallCapture:
         self._session = session
         self._metadata = metadata
         self._room = ctx.room.name
-        self._call_dir = CALLS_DIR / self._room
+        self._call_dir = call_storage_dir(metadata, self._room, time.time())
         self._audio_path = self._call_dir / "audio.ogg"
         self._started_at = time.time()
         self._transcript: list[dict[str, Any]] = []

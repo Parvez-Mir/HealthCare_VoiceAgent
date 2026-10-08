@@ -4,6 +4,33 @@ Healthcare voice agent with a FastAPI backend and LiveKit-based voice
 integration. Backend-specific code and dependencies live in
 [`backend/`](./backend/).
 
+## Operations dashboard
+
+The Phase 4 frontend lives in [`frontend/`](./frontend/). Start it separately
+from the backend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open the Vite URL shown in the terminal. The current development account is
+`admin@careline.dev` with password `careline-dev`. Authentication is
+intentionally hard-coded for this phase and is not suitable for production.
+The FastAPI backend must be running for sign-in and dashboard data. The shared
+dashboard shell currently provides Admin and Developer module switching; the
+Admin module now includes the protected patient directory with search,
+biomarker details, and patient CRUD. Slot and call-management screens are
+available in the Admin module. Slot editing protects booked slots, and call
+dispatch requires confirmation and uses only the selected patient's stored
+phone number. Developer configuration and prompt management are added
+incrementally in Phase 4. The Developer module now provides masked runtime
+configuration, configuration checks, and system-prompt CRUD with preview.
+Configuration changes are written to `backend/.env`; the voice worker reloads
+that file when each new call starts. An already active call keeps the settings
+it started with.
+
 ## Initial setup
 
 The project uses Python, FastAPI for the booking backend, and LiveKit Agents for
@@ -119,14 +146,15 @@ Python).
 
 ## Call data
 
-Each call (console or outbound) is saved to its own git-ignored folder,
-`backend/calls/<room-name>/`:
+Each call (console or outbound) is saved to its own git-ignored folder under
+`backend/calls/<date>/<patient-id>/<room-name>/` (the date is UTC):
 
 - `audio.ogg`: stereo Opus recording, caller on the left channel and agent on
   the right.
 - `call.json`: call metadata and variables (patient, phone number, biomarkers,
   start/end time), the live transcript, every tool call with its arguments and
-  result, and the recording path.
+  result, the recording path, and a non-secret snapshot of the configuration
+  used for that call.
 - `analysis.json`: the post-call analysis (see below).
 
 The transcript is captured during the call from the agent's own speech-to-text
@@ -134,6 +162,11 @@ and replies, so no second transcription is needed. The worker logs `Capturing ca
 the start and `Saved call data to …` at the end. Calls contain health
 conversations, so use dummy patients and test callers only. A capture failure
 is logged and never interrupts the call.
+
+Configuration snapshots exclude API keys, secrets, and other credential values.
+Post-call analysis uses the saved model and endpoint snapshot, so changing
+Developer settings between calls does not change how an earlier call is
+analyzed.
 
 ## Post-call analysis
 
@@ -171,7 +204,7 @@ Re-run it for any saved call:
 
 ```bash
 cd backend
-.venv/bin/python post_call_analysis.py calls/<room-name>
+.venv/bin/python post_call_analysis.py calls/<date>/<patient-id>/<room-name>
 ```
 
 ## Opik tracing
@@ -218,7 +251,7 @@ call with:
 
 ```bash
 cd backend
-.venv/bin/python opik_integration.py calls/<room-name>
+.venv/bin/python opik_integration.py calls/<date>/<patient-id>/<room-name>
 ```
 
 ### Live latency spans
