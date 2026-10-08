@@ -1,40 +1,71 @@
 # HealthCare Voice Agent
 
-Healthcare voice agent with a FastAPI backend and LiveKit-based voice
-integration. Backend-specific code and dependencies live in
-[`backend/`](./backend/).
+Healthcare appointment assistant that can call patients, hold a real-time
+voice conversation, verify identity, check appointment slots, and book an
+appointment. It includes an operations dashboard for Admin and Developer users.
 
-## Operations dashboard
+The voice stack uses LiveKit Agents with AssemblyAI STT, Cartesia TTS, Silero VAD, and selectable native LiveKit LLM providers: Ollama, OpenAI, Google Gemini, and Anthropic Claude.
 
-The Phase 4 frontend lives in [`frontend/`](./frontend/). Start it separately
-from the backend:
+## Repository structure
 
-```bash
-cd frontend
-npm install
-npm run dev
+```text
+backend/
+  app.py                  FastAPI API, authentication, dashboard endpoints
+  voice_agent.py          LiveKit voice worker and conversation tools
+  make_call.py            Manual outbound call command
+  call_capture.py         Call transcript and audio capture
+  post_call_analysis.py   Post-call outcome analysis
+  opik_integration.py     Opik traces and evaluation scores
+  patients.json           Dummy patient records
+  slots.json              Dummy appointment slots
+  agent_prompts.json      Versioned system prompts
+  requirements.txt        Python dependencies
+  .env.example            Runtime configuration template
+
+frontend/
+  src/                    React and TypeScript dashboard
+  package.json            Frontend dependencies and scripts
+
+docker-compose.yml        API, voice worker, and frontend services
+specs/                    Project specifications
 ```
 
-Open the Vite URL shown in the terminal. The current development account is
-`admin@careline.dev` with password `careline-dev`. Authentication is
-intentionally hard-coded for this phase and is not suitable for production.
-The FastAPI backend must be running for sign-in and dashboard data. The shared
-dashboard shell currently provides Admin and Developer module switching; the
-Admin module now includes the protected patient directory with search,
-biomarker details, and patient CRUD. Slot and call-management screens are
-available in the Admin module. Slot editing protects booked slots, and call
-dispatch requires confirmation and uses only the selected patient's stored
-phone number. Developer configuration and prompt management are added
-incrementally in Phase 4. The Developer module now provides masked runtime
-configuration, configuration checks, and system-prompt CRUD with preview.
-Configuration changes are written to `backend/.env`; the voice worker reloads
-that file when each new call starts. An already active call keeps the settings
-it started with.
+### Main technologies
 
-## Initial setup
+- **Backend:** Python, FastAPI, Uvicorn
+- **Voice:** LiveKit Agents, AssemblyAI, Cartesia, Silero
+- **LLM:** Native LiveKit plugins for Ollama, OpenAI, Gemini, and Claude
+- **Frontend:** React, TypeScript, Vite
+- **Persistence:** JSON files and local call folders
+- **Observability:** Opik and OpenTelemetry
 
-The project uses Python, FastAPI for the booking backend, and LiveKit Agents for
-the voice agent (AssemblyAI STT, a local Ollama LLM, Cartesia TTS, Silero VAD).
+## Configuration
+
+Create the runtime configuration:
+
+```bash
+cp backend/.env.example backend/.env
+```
+
+The main LLM settings are:
+
+```env
+LLM_PROVIDER=ollama
+LLM_MODEL=hf.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF:Q8_0
+LLM_BASE_URL=http://127.0.0.1:11434/v1
+LLM_API_KEY=
+```
+
+Supported providers are `ollama`, `openai`, `google`, and `anthropic`.
+Configure the relevant model, API key, LiveKit credentials, AssemblyAI key, Cartesia key, and SIP trunk ID in `backend/.env`.
+
+Never commit `backend/.env`.
+
+## Local setup without Docker
+
+This setup runs the API, voice worker, and frontend in separate terminals.
+
+### 1. Install backend dependencies
 
 ```bash
 cd backend
@@ -45,223 +76,169 @@ python -m pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Install Ollama and pull the local model before running the voice agent:
+Edit `backend/.env` with the required credentials.
+
+For Ollama, install Ollama separately and download the configured model:
 
 ```bash
 ollama pull hf.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF:Q8_0
 ```
 
-Fill in `OLLAMA_MODEL`, `OLLAMA_BASE_URL`, `ASSEMBLYAI_API_KEY`,
-`CARTESIA_API_KEY`, `PATIENT_ID`, `AGENT_PROMPT_ID`, and the LiveKit credentials
-in `backend/.env` before running the voice agent. The LLM now runs locally through Ollama; STT
-and TTS still use AssemblyAI and Cartesia. The agent speaks with the Cartesia
-"Fiona" voice; set `CARTESIA_VOICE_ID` to use a different one. Do not commit
-`.env`.
+If you select OpenAI, Gemini, or Claude instead, configure its API key and
+model in `backend/.env`; Ollama is not required.
 
-## Booking backend
+### 2. Terminal 1: start the FastAPI backend
 
-Start the backend from the `backend/` directory:
+From the repository root:
 
 ```bash
 cd backend
 .venv/bin/python -m uvicorn app:app --reload
 ```
 
-The booking API provides:
-
-- `GET /health` — backend health check
-- `GET /slots` — available fake consultation slots
-- `POST /appointments` — books a slot for a dummy patient
-
-Example booking request:
+Verify it is running:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/appointments \
-  -H 'Content-Type: application/json' \
-  -d '{"patient_id":"patient-001","slot_id":"slot-001"}'
+curl http://127.0.0.1:8000/health
 ```
 
-## Console voice agent
-
-With the booking backend running in one terminal, start the LiveKit room agent
-from another terminal:
+### 3. Terminal 2: start the LiveKit voice worker
 
 ```bash
 cd backend
-.venv/bin/python voice_agent.py console
+.venv/bin/python voice_agent.py dev
 ```
 
-The agent reads the patient selected by `PATIENT_ID` from `patients.json`. Set
-`BACKEND_URL` in `backend/.env` only when the booking backend is running at a
-different URL. LiveKit BVC noise cancellation is enabled for microphone input.
+Keep this terminal running. It receives LiveKit jobs and starts the
+conversation for each call.
 
-### Versioned agent prompts
-
-Agent system prompts are stored in
-[`backend/agent_prompts.json`](./backend/agent_prompts.json). Each entry has a
-unique `id`, a description, and a `template`. Set `AGENT_PROMPT_ID` in
-`backend/.env` to select a prompt; it defaults to
-`flora-healthcare-agent-v1`.
-Templates can use `{patient_name}`, `{glucose_mg_dl}`, and
-`{hba1c_percent}`. The selected prompt ID is stored in each call's metadata so
-calls can be compared by prompt version.
-
-## Outbound calls (LiveKit Telephony)
-
-One-time setup in the LiveKit Cloud dashboard:
-
-1. LiveKit-purchased numbers currently support inbound calls only, so outbound
-   calls need a SIP carrier (for example Twilio or Telnyx). In the carrier's
-   console, create an outbound SIP trunk and buy or verify a number.
-2. In the LiveKit dashboard under Telephony, create an **outbound SIP trunk**
-   using the carrier's SIP hostname (no `sip:` prefix), transport, credentials,
-   and the carrier number as the caller ID. Copy its trunk ID (`ST_...`).
-3. Set `SIP_OUTBOUND_TRUNK_ID` in `backend/.env`, along with `LIVEKIT_URL`,
-   `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`.
-
-The LLM is not configured in LiveKit. The agent worker runs on your machine and
-calls Ollama directly, so Ollama must be running locally.
-
-Run each in its own terminal from `backend/`:
+### 4. Terminal 3: start the frontend
 
 ```bash
-.venv/bin/python -m uvicorn app:app --reload   # booking backend
-.venv/bin/python voice_agent.py dev            # agent worker
+cd frontend
+npm install
+npm run dev
+```
+
+Open <http://localhost:5173>.
+
+Development login:
+
+```text
+Email:    admin@careline.dev
+Password: careline-dev
+```
+
+The dashboard provides:
+
+- **Admin:** patient details, biomarker information, slots, and outbound call dispatch
+- **Developer:** LLM/provider settings, masked secrets, configuration checks, and prompt CRUD
+
+### 5. Optional: place a manual outbound call
+
+Configure LiveKit and an outbound SIP trunk in `backend/.env`, then run:
+
+```bash
+cd backend
 .venv/bin/python make_call.py patient-001 +14155550123
 ```
 
-`make_call.py` takes a patient ID and the test phone number (E.164) and places
-exactly one call; there is no retry or batch dialing. The worker dials the
-number, waits for it to be answered, and starts the conversation. Dial failures
-(including the SIP status code) are logged in the worker terminal.
+Use E.164 test numbers only and keep patient data fictional.
 
-Only call phones whose owners know it is a test. Keep `patients.json` to dummy
-data; do not commit real phone numbers. Use the patient's `phone` only as a
-placeholder; the destination is whatever you pass to `make_call.py`.
+## Local setup with Docker
 
-If you see `CERTIFICATE_VERIFY_FAILED` with python.org Python on macOS, run
-`export SSL_CERT_FILE=$(.venv/bin/python -c "import certifi;print(certifi.where())")`
-in each terminal (or run the "Install Certificates.command" that ships with
-Python).
+Docker Compose starts the API, LiveKit worker, and production frontend.
 
-## Call data
+### Important first-run note
 
-Each call (console or outbound) is saved to its own git-ignored folder under
-`backend/calls/<date>/<patient-id>/<room-name>/` (the date is UTC):
+The first setup can take several minutes. Ollama must download and store the
+local model, which may be several gigabytes depending on the selected model.
+The model download happens before the containers start.
 
-- `audio.ogg`: stereo Opus recording, caller on the left channel and agent on
-  the right.
-- `call.json`: call metadata and variables (patient, phone number, biomarkers,
-  start/end time), the live transcript, every tool call with its arguments and
-  result, the recording path, and a non-secret snapshot of the configuration
-  used for that call.
-- `analysis.json`: the post-call analysis (see below).
-
-The transcript is captured during the call from the agent's own speech-to-text
-and replies, so no second transcription is needed. The worker logs `Capturing call to …` at
-the start and `Saved call data to …` at the end. Calls contain health
-conversations, so use dummy patients and test callers only. A capture failure
-is logged and never interrupts the call.
-
-Configuration snapshots exclude API keys, secrets, and other credential values.
-Post-call analysis uses the saved model and endpoint snapshot, so changing
-Developer settings between calls does not change how an earlier call is
-analyzed.
-
-## Post-call analysis
-
-When a call ends, a detached background process runs
-[`post_call_analysis.py`](./backend/post_call_analysis.py) and writes
-`analysis.json` into the call folder (progress goes to `analysis.log`). It uses
-the local Ollama model, so Ollama must be running.
-
-```json
-{
-  "appointment_booked": true,
-  "confirmation_id": "confirm-9",
-  "outcome": "booked",
-  "summary": "...",
-  "agent_claimed_booking": true,
-  "claim_matches_tool_result": true,
-  "PII_handling": true,
-  "analysis_error": null
-}
-```
-
-- `appointment_booked` comes only from a successful `book_appointment` tool
-  result, never from the transcript.
-- `outcome` is one of `booked`, `declined`, `interested_not_booked`,
-  `undecided`, or `no_conversation` (the patient never spoke).
-- `claim_matches_tool_result` is false when the agent told the patient they
-  were booked but no booking was recorded.
-- `PII_handling` is true only when identity is confirmed before patient-specific
-  details are shared and no unnecessary personal or health information is
-  disclosed.
-- If the model fails, the booking fields are still set and `analysis_error`
-  explains why.
-
-Re-run it for any saved call:
+Install and start Ollama on the host, then pull the model:
 
 ```bash
-cd backend
-.venv/bin/python post_call_analysis.py calls/<date>/<patient-id>/<room-name>
+ollama serve
 ```
 
-## Opik tracing
-
-All Opik code is in [`opik_integration.py`](./backend/opik_integration.py). After
-the post-call analysis finishes, the same background process sends **one trace
-per call** to your Opik project containing:
-
-- call metadata and variables (patient, phone number, biomarkers, room, times)
-- the transcript
-- the recording path (`recording_path`, a local file)
-- tool calls and results (also logged as `tool` spans)
-- the post-call analysis (trace output)
-
-It also logs a `PII_handling` feedback score on the trace, in addition to
-`appointment_booked` and `booking_claim_matches_tool_result`. Scores are 1.0
-or 0.0.
-Opik errors are caught and logged and never affect a call.
-
-### Opik PII handling online evaluation
-
-Create one trace rule named `PII_handling` in the Opik project’s **Rules** tab.
-Select an LLM-as-a-Judge model, use `{{trace}}` as the prompt variable, define
-one Boolean score named `pass`, and set the sampling rate to 100% if every
-completed call should be evaluated.
-
-   ```
-   Inspect the complete call trace. Did the agent handle patient information
-   safely? Return pass=true only if the caller's identity was confirmed before
-   any patient-specific biomarker or appointment details were shared and the
-   agent disclosed no unnecessary personal or health information. Otherwise
-   return pass=false.
-   {{trace}}
-   ```
-
-The locally generated `PII_handling` score remains on the trace even if the
-online evaluator is unavailable, so a dashboard rule outage cannot affect a
-call.
-
-Setup: create an Opik account, then set `OPIK_API_KEY`, `OPIK_WORKSPACE` (the
-name in your Opik URL, `comet.com/opik/<workspace>`), and `OPIK_PROJECT_NAME` in
-`backend/.env`. The project is created on the first trace. Re-send any saved
-call with:
+In another terminal:
 
 ```bash
-cd backend
-.venv/bin/python opik_integration.py calls/<date>/<patient-id>/<room-name>
+ollama pull hf.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF:Q8_0
 ```
 
-### Live latency spans
+Create and configure the environment file:
 
-The agent also exports LiveKit's built-in OpenTelemetry spans to the same Opik
-project while the call runs (`setup_live_tracing` in `opik_integration.py`).
-They show per-step timings for the session, STT, LLM, and TTS, and are tagged
-with the room name and patient ID so they can be matched to the post-call trace.
-They are a separate trace from the post-call one. Export failures are logged and
-never affect a call. Latency is not duplicated in `call.json`.
+```bash
+cp backend/.env.example backend/.env
+```
 
-If a call is silent and the worker logs `no audio frames were pushed` or HTTP
-402 from Cartesia, check your Cartesia credits and plan limits.
+When using Ollama from Docker on macOS or Windows, set:
+
+```env
+LLM_PROVIDER=ollama
+LLM_BASE_URL=http://host.docker.internal:11434/v1
+```
+
+Do not use `http://127.0.0.1:11434/v1` for the Docker worker. Inside a
+container, `127.0.0.1` points to the container itself. If the worker cannot
+connect to Ollama, verify connectivity from the container:
+
+```bash
+docker compose exec agent python -c \
+"import urllib.request; print(urllib.request.urlopen('http://host.docker.internal:11434/api/tags').read().decode())"
+```
+
+If Ollama is only listening on the host loopback interface, restart it with:
+
+```bash
+OLLAMA_HOST=0.0.0.0:11434 ollama serve
+```
+
+For OpenAI, Gemini, or Claude, set the provider and API key instead. Then
+start the stack:
+
+```bash
+docker compose up --build
+```
+
+Open:
+
+- Frontend: <http://localhost:5173>
+- API: <http://localhost:8000>
+- Health check: <http://localhost:8000/health>
+
+Useful commands:
+
+```bash
+docker compose logs -f api
+docker compose logs -f agent
+docker compose ps
+docker compose down
+```
+
+The `backend/` directory is mounted into the containers, so patient data,
+slots, prompts, configuration, and call output persist locally.
+
+## Call output and observability
+
+Each call is stored under:
+
+```text
+backend/calls/{UTC date}/{patient-id}/{room-name}/
+```
+
+The folder contains call metadata, transcript/tool activity, recording output,
+and post-call analysis. Configuration snapshots identify the provider, model,
+prompt, and voice used for that call without storing API keys.
+
+Opik receives call traces, tool activity, analysis results, and application
+scores for booking correctness and PII handling. Configure it through the
+`OPIK_*` values in `backend/.env`.
+
+## Development limitations
+
+- Authentication is hard-coded for development.
+- Patient and slot data are stored in JSON files.
+- Booking state is in memory and resets when the backend restarts.
+- Use dummy patient data and test callers only.

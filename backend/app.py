@@ -102,6 +102,7 @@ DEVELOPMENT_PASSWORD = "careline-dev"
 DEVELOPMENT_USER = {"email": DEVELOPMENT_EMAIL, "name": "Careline operator"}
 BEARER_SCHEME = HTTPBearer(auto_error=False)
 CONFIG_SECRET_KEYS = {
+    "LLM_API_KEY",
     "ASSEMBLYAI_API_KEY",
     "CARTESIA_API_KEY",
     "LIVEKIT_API_KEY",
@@ -109,6 +110,10 @@ CONFIG_SECRET_KEYS = {
     "OPIK_API_KEY",
 }
 CONFIG_KEYS = [
+    "LLM_PROVIDER",
+    "LLM_MODEL",
+    "LLM_BASE_URL",
+    "LLM_API_KEY",
     "OLLAMA_MODEL",
     "OLLAMA_BASE_URL",
     "ASSEMBLYAI_API_KEY",
@@ -125,6 +130,7 @@ CONFIG_KEYS = [
     "OPIK_PROJECT_NAME",
 ]
 SUPPORTED_PROMPT_VARIABLES = {"patient_id", "patient_name", "glucose_mg_dl", "hba1c_percent"}
+SUPPORTED_LLM_PROVIDERS = {"ollama", "openai", "google", "anthropic"}
 
 app = FastAPI(title="Healthcare Voice Agent Backend", version="0.1.0")
 app.add_middleware(
@@ -197,6 +203,11 @@ def update_developer_config(
     if unknown:
         raise HTTPException(status_code=400, detail=f"Unsupported settings: {', '.join(sorted(unknown))}")
     for key, value in request.values.items():
+        if key == "LLM_PROVIDER" and value and value.strip().lower() not in SUPPORTED_LLM_PROVIDERS:
+            raise HTTPException(
+                status_code=422,
+                detail="LLM_PROVIDER must be ollama, openai, google, or anthropic",
+            )
         if key.endswith("_URL") and value:
             parsed = urlparse(value)
             if parsed.scheme not in {"http", "https", "ws", "wss"} or not parsed.netloc:
@@ -223,8 +234,13 @@ def update_developer_config(
 @app.post("/developer/config/test")
 def test_developer_config(_: dict[str, str] = Depends(require_dashboard_session)) -> dict[str, object]:
     values = read_env_values()
+    provider = (values.get("LLM_PROVIDER") or "ollama").lower()
+    llm_configured = bool(
+        values.get("LLM_MODEL")
+        and (provider in {"ollama", "openai"} or values.get("LLM_API_KEY"))
+    )
     checks = {
-        "ollama": bool(values.get("OLLAMA_MODEL") and values.get("OLLAMA_BASE_URL")),
+        "llm": llm_configured,
         "livekit": bool(values.get("LIVEKIT_URL") and values.get("LIVEKIT_API_KEY") and values.get("LIVEKIT_API_SECRET")),
         "speech_providers": bool(values.get("ASSEMBLYAI_API_KEY") and values.get("CARTESIA_API_KEY")),
         "outbound_sip": bool(values.get("SIP_OUTBOUND_TRUNK_ID")),
