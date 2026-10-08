@@ -58,6 +58,61 @@ and TTS still use AssemblyAI and Cartesia. The agent speaks with the Cartesia
 "Fiona" voice; set `CARTESIA_VOICE_ID` to use a different one. Do not commit
 `.env`.
 
+## Docker
+
+Docker Compose runs the API, LiveKit voice worker, and production frontend as
+separate containers. The compose setup intentionally uses Ollama on the host,
+because downloading and storing a local model inside a container is expensive.
+On macOS and Windows, `host.docker.internal` is mapped automatically. Make sure
+Ollama is running on the host and that it exposes its OpenAI-compatible API on
+port `11434`.
+
+Create the runtime configuration before starting the stack:
+
+```bash
+cp backend/.env.example backend/.env
+# Fill in backend/.env, including LiveKit and provider credentials.
+```
+
+Start all services:
+
+```bash
+docker compose up --build
+```
+
+Open the dashboard at <http://localhost:5173>. The API is available at
+<http://localhost:8000>, and its health endpoint can be checked with:
+
+```bash
+curl http://localhost:8000/health
+```
+
+The frontend's browser API URL is set at image-build time to
+`http://localhost:8000`. The agent container uses the Compose service URL
+`http://api:8000` for backend callbacks and
+`http://host.docker.internal:11434/v1` for Ollama. If Ollama runs elsewhere,
+change `OLLAMA_BASE_URL` in the `agent` service in
+[`docker-compose.yml`](./docker-compose.yml).
+
+Patient data, slot data, prompts, runtime configuration, and call recordings
+are mounted from `backend/`, so they survive container restarts. The
+configuration file is mounted at runtime and is excluded from both Docker
+build contexts; secrets are not baked into either image.
+
+Useful commands:
+
+```bash
+docker compose logs -f api       # FastAPI logs
+docker compose logs -f agent     # LiveKit worker logs
+docker compose ps                # Service status
+docker compose down              # Stop and remove containers
+```
+
+The hard-coded development login remains:
+`admin@careline.dev` / `careline-dev`. Do not expose this compose setup to the
+public internet without replacing the development authentication and adding
+production secret management.
+
 ## Booking backend
 
 Start the backend from the `backend/` directory:
