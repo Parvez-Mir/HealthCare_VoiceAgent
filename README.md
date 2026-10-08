@@ -105,3 +105,21 @@ If you see `CERTIFICATE_VERIFY_FAILED` with python.org Python on macOS, run
 `export SSL_CERT_FILE=$(.venv/bin/python -c "import certifi;print(certifi.where())")`
 in each terminal (or run the "Install Certificates.command" that ships with
 Python).
+
+## Call data
+
+Each call (console or outbound) is saved to its own git-ignored folder,
+`backend/calls/<room-name>/`:
+
+- `audio.ogg`: stereo Opus recording, caller on the left channel and agent on
+  the right.
+- `call.json`: call metadata and variables (patient, phone number, biomarkers,
+  start/end time), the live transcript, every tool call with its arguments and
+  result, and the recording path.
+
+The transcript is captured during the call from the agent's own speech-to-text
+and replies, so no second transcription is needed. Later phases add
+`analysis.json` to the same folder. The worker logs `Capturing call to …` at
+the start and `Saved call data to …` at the end. Calls contain health
+conversations, so use dummy patients and test callers only. A capture failure
+is logged and never interrupts the call.
