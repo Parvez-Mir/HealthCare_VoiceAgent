@@ -6,6 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from threading import Lock
 from uuid import uuid4
+from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -62,6 +63,20 @@ class CallDispatchRequest(BaseModel):
     patient_id: str = Field(min_length=1)
 
 
+class DeveloperConfigUpdate(BaseModel):
+    values: dict[str, str]
+
+
+class PromptRequest(BaseModel):
+    id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+    description: str = Field(min_length=1, max_length=240)
+    template: str = Field(min_length=1, max_length=12000)
+
+
+class PromptPreviewRequest(BaseModel):
+    template: str = Field(min_length=1, max_length=12000)
+
+
 PATIENTS_PATH = Path(__file__).with_name("patients.json")
 with PATIENTS_PATH.open(encoding="utf-8") as patients_file:
     PATIENTS = json.load(patients_file)
@@ -70,6 +85,9 @@ SLOTS_PATH = Path(__file__).with_name("slots.json")
 with SLOTS_PATH.open(encoding="utf-8") as slots_file:
     SLOTS = json.load(slots_file)
 
+ENV_PATH = Path(__file__).with_name(".env")
+ENV_EXAMPLE_PATH = Path(__file__).with_name(".env.example")
+PROMPTS_PATH = Path(__file__).with_name("agent_prompts.json")
 SLOT_IDS = {slot["id"] for slot in SLOTS}
 BOOKED_SLOTS: set[str] = set()
 BOOKING_LOCK = Lock()
@@ -77,10 +95,36 @@ SESSION_TOKENS: set[str] = set()
 SESSION_LOCK = Lock()
 PATIENTS_LOCK = Lock()
 SLOTS_LOCK = Lock()
+ENV_LOCK = Lock()
+PROMPTS_LOCK = Lock()
 DEVELOPMENT_EMAIL = "admin@careline.dev"
 DEVELOPMENT_PASSWORD = "careline-dev"
 DEVELOPMENT_USER = {"email": DEVELOPMENT_EMAIL, "name": "Careline operator"}
 BEARER_SCHEME = HTTPBearer(auto_error=False)
+CONFIG_SECRET_KEYS = {
+    "ASSEMBLYAI_API_KEY",
+    "CARTESIA_API_KEY",
+    "LIVEKIT_API_KEY",
+    "LIVEKIT_API_SECRET",
+    "OPIK_API_KEY",
+}
+CONFIG_KEYS = [
+    "OLLAMA_MODEL",
+    "OLLAMA_BASE_URL",
+    "ASSEMBLYAI_API_KEY",
+    "CARTESIA_API_KEY",
+    "CARTESIA_VOICE_ID",
+    "PATIENT_ID",
+    "AGENT_PROMPT_ID",
+    "LIVEKIT_URL",
+    "LIVEKIT_API_KEY",
+    "LIVEKIT_API_SECRET",
+    "SIP_OUTBOUND_TRUNK_ID",
+    "OPIK_API_KEY",
+    "OPIK_WORKSPACE",
+    "OPIK_PROJECT_NAME",
+]
+SUPPORTED_PROMPT_VARIABLES = {"patient_id", "patient_name", "glucose_mg_dl", "hba1c_percent"}
 
 app = FastAPI(title="Healthcare Voice Agent Backend", version="0.1.0")
 app.add_middleware(
@@ -138,6 +182,136 @@ def dashboard_summary(_: dict[str, str] = Depends(require_dashboard_session)) ->
     }
 
 
+@app.get("/developer/config")
+def get_developer_config(_: dict[str, str] = Depends(require_dashboard_session)) -> dict[str, list[dict[str, str | bool]]]:
+    with ENV_LOCK:
+        return {"settings": config_payload()}
+
+
+@app.put("/developer/config")
+def update_developer_config(
+    request: DeveloperConfigUpdate,
+    _: dict[str, str] = Depends(require_dashboard_session),
+) -> dict[str, list[dict[str, str | bool]]]:
+    unknown = set(request.values) - set(CONFIG_KEYS)
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unsupported settings: {', '.join(sorted(unknown))}")
+    for key, value in request.values.items():
+        if key.endswith("_URL") and value:
+            parsed = urlparse(value)
+            if parsed.scheme not in {"http", "https", "ws", "wss"} or not parsed.netloc:
+                raise HTTPException(status_code=422, detail=f"{key} must be a valid URL")
+        if key == "AGENT_PROMPT_ID" and value:
+            with PROMPTS_LOCK:
+                if not any(prompt["id"] == value for prompt in load_prompts()):
+                    raise HTTPException(status_code=422, detail="AGENT_PROMPT_ID must reference an existing prompt")
+    current_values = read_env_values()
+    updates = dict(request.values)
+    for key in CONFIG_SECRET_KEYS:
+        if key in updates and not updates[key]:
+            updates[key] = current_values.get(key, "")
+    with ENV_LOCK:
+        save_env_values(updates)
+    for key, value in updates.items():
+        if value:
+            os.environ[key] = value
+        elif key in os.environ:
+            os.environ.pop(key)
+    return {"settings": config_payload()}
+
+
+@app.post("/developer/config/test")
+def test_developer_config(_: dict[str, str] = Depends(require_dashboard_session)) -> dict[str, object]:
+    values = read_env_values()
+    checks = {
+        "ollama": bool(values.get("OLLAMA_MODEL") and values.get("OLLAMA_BASE_URL")),
+        "livekit": bool(values.get("LIVEKIT_URL") and values.get("LIVEKIT_API_KEY") and values.get("LIVEKIT_API_SECRET")),
+        "speech_providers": bool(values.get("ASSEMBLYAI_API_KEY") and values.get("CARTESIA_API_KEY")),
+        "outbound_sip": bool(values.get("SIP_OUTBOUND_TRUNK_ID")),
+        "opik": bool(values.get("OPIK_API_KEY") and values.get("OPIK_WORKSPACE")),
+    }
+    return {"checks": checks, "configured_count": sum(checks.values()), "total_count": len(checks)}
+
+
+@app.get("/developer/prompts")
+def list_developer_prompts(_: dict[str, str] = Depends(require_dashboard_session)) -> dict[str, object]:
+    with PROMPTS_LOCK:
+        prompts = load_prompts()
+    active_prompt_id = read_env_values().get("AGENT_PROMPT_ID", "flora-healthcare-agent-v1")
+    return {"prompts": [{**prompt, "active": prompt["id"] == active_prompt_id} for prompt in prompts]}
+
+
+@app.post("/developer/prompts", response_model=dict, status_code=201)
+def create_developer_prompt(
+    request: PromptRequest,
+    _: dict[str, str] = Depends(require_dashboard_session),
+) -> dict:
+    validate_prompt_template(request.template)
+    prompt = request.model_dump()
+    with PROMPTS_LOCK:
+        prompts = load_prompts()
+        if any(item["id"] == prompt["id"] for item in prompts):
+            raise HTTPException(status_code=409, detail="A prompt with this ID already exists")
+        prompts.append(prompt)
+        save_prompts(prompts)
+    return prompt
+
+
+@app.put("/developer/prompts/{prompt_id}", response_model=dict)
+def update_developer_prompt(
+    prompt_id: str,
+    request: PromptRequest,
+    _: dict[str, str] = Depends(require_dashboard_session),
+) -> dict:
+    if request.id != prompt_id:
+        raise HTTPException(status_code=400, detail="Prompt ID cannot be changed")
+    validate_prompt_template(request.template)
+    prompt = request.model_dump()
+    with PROMPTS_LOCK:
+        prompts = load_prompts()
+        index = next((position for position, item in enumerate(prompts) if item["id"] == prompt_id), None)
+        if index is None:
+            raise HTTPException(status_code=404, detail="Prompt not found")
+        prompts[index] = prompt
+        save_prompts(prompts)
+    return prompt
+
+
+@app.delete("/developer/prompts/{prompt_id}", status_code=204)
+def delete_developer_prompt(
+    prompt_id: str,
+    _: dict[str, str] = Depends(require_dashboard_session),
+) -> None:
+    with PROMPTS_LOCK:
+        prompts = load_prompts()
+        if len(prompts) <= 1:
+            raise HTTPException(status_code=409, detail="At least one prompt must remain")
+        if read_env_values().get("AGENT_PROMPT_ID", "flora-healthcare-agent-v1") == prompt_id:
+            raise HTTPException(status_code=409, detail="Select another active prompt before deleting this one")
+        remaining = [prompt for prompt in prompts if prompt["id"] != prompt_id]
+        if len(remaining) == len(prompts):
+            raise HTTPException(status_code=404, detail="Prompt not found")
+        save_prompts(remaining)
+
+
+@app.post("/developer/prompts/preview")
+def preview_developer_prompt(
+    request: PromptPreviewRequest,
+    _: dict[str, str] = Depends(require_dashboard_session),
+) -> dict[str, str]:
+    validate_prompt_template(request.template)
+    sample_values = {
+        "patient_id": "patient-001",
+        "patient_name": "Sample Patient",
+        "glucose_mg_dl": "110",
+        "hba1c_percent": "6.1",
+    }
+    rendered = request.template
+    for key, value in sample_values.items():
+        rendered = rendered.replace(f"{{{key}}}", value).replace(f"{{{{{key}}}}}", value)
+    return {"preview": rendered}
+
+
 def load_patients() -> list[dict]:
     with PATIENTS_PATH.open(encoding="utf-8") as patients_file:
         return json.load(patients_file)
@@ -162,6 +336,81 @@ def save_slots(slots: list[dict]) -> None:
         json.dump(slots, slots_file, indent=2)
         slots_file.write("\n")
     os.replace(temporary_path, SLOTS_PATH)
+
+
+def read_env_values() -> dict[str, str]:
+    if not ENV_PATH.exists():
+        return {}
+    values: dict[str, str] = {}
+    for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#") or "=" not in stripped:
+            continue
+        key, value = stripped.split("=", 1)
+        values[key] = value
+    return values
+
+
+def save_env_values(updates: dict[str, str]) -> None:
+    existing_lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
+    seen: set[str] = set()
+    output: list[str] = []
+    for line in existing_lines:
+        stripped = line.strip()
+        if stripped and not stripped.startswith("#") and "=" in stripped:
+            key = stripped.split("=", 1)[0]
+            if key in updates:
+                output.append(f"{key}={updates[key]}")
+                seen.add(key)
+                continue
+        output.append(line)
+    for key, value in updates.items():
+        if key not in seen:
+            output.append(f"{key}={value}")
+    temporary_path = ENV_PATH.with_suffix(".env.tmp")
+    temporary_path.write_text("\n".join(output) + "\n", encoding="utf-8")
+    os.replace(temporary_path, ENV_PATH)
+
+
+def mask_secret(value: str) -> str:
+    if not value:
+        return ""
+    return f"{value[:3]}****{value[-2:]}" if len(value) > 5 else "****"
+
+
+def config_payload() -> list[dict[str, str | bool]]:
+    values = read_env_values()
+    return [
+        {
+            "key": key,
+            "value": "" if key in CONFIG_SECRET_KEYS else values.get(key, ""),
+            "configured": bool(values.get(key)),
+            "secret": key in CONFIG_SECRET_KEYS,
+            "masked": mask_secret(values.get(key, "")) if key in CONFIG_SECRET_KEYS else "",
+        }
+        for key in CONFIG_KEYS
+    ]
+
+
+def load_prompts() -> list[dict]:
+    with PROMPTS_PATH.open(encoding="utf-8") as prompts_file:
+        return json.load(prompts_file)
+
+
+def save_prompts(prompts: list[dict]) -> None:
+    temporary_path = PROMPTS_PATH.with_suffix(".json.tmp")
+    with temporary_path.open("w", encoding="utf-8") as prompts_file:
+        json.dump(prompts, prompts_file, indent=2)
+        prompts_file.write("\n")
+    os.replace(temporary_path, PROMPTS_PATH)
+
+
+def validate_prompt_template(template: str) -> None:
+    variables = set(re.findall(r"(?<!\{)\{([A-Za-z0-9_]+)\}(?!\})", template))
+    unsupported = variables - SUPPORTED_PROMPT_VARIABLES
+    if unsupported:
+        names = ", ".join(sorted(unsupported))
+        raise HTTPException(status_code=422, detail=f"Unsupported prompt variables: {names}")
 
 
 def validate_phone(phone: str) -> str:

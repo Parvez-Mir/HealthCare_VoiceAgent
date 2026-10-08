@@ -26,6 +26,21 @@ export type Slot = {
   status: "available" | "booked";
 };
 
+export type ConfigSetting = {
+  key: string;
+  value: string;
+  configured: boolean;
+  secret: boolean;
+  masked: string;
+};
+
+export type SystemPrompt = {
+  id: string;
+  description: string;
+  template: string;
+  active: boolean;
+};
+
 export class ApiError extends Error {
   status: number;
 
@@ -132,5 +147,51 @@ export function dispatchPatientCall(patientId: string) {
   return request<{ patient_id: string; phone_number: string; room: string; status: string }>("/calls", {
     method: "POST",
     body: JSON.stringify({ patient_id: patientId }),
+  });
+}
+
+export function getDeveloperConfig() {
+  return request<{ settings: ConfigSetting[] }>("/developer/config");
+}
+
+export function updateDeveloperConfig(values: Record<string, string>) {
+  return request<{ settings: ConfigSetting[] }>("/developer/config", {
+    method: "PUT",
+    body: JSON.stringify({ values }),
+  });
+}
+
+export function testDeveloperConfig() {
+  return request<{ checks: Record<string, boolean>; configured_count: number; total_count: number }>("/developer/config/test", {
+    method: "POST",
+  });
+}
+
+export function getPrompts() {
+  return request<{ prompts: SystemPrompt[] }>("/developer/prompts");
+}
+
+export function createPrompt(prompt: Omit<SystemPrompt, "active">) {
+  return request<SystemPrompt>("/developer/prompts", {
+    method: "POST",
+    body: JSON.stringify(prompt),
+  });
+}
+
+export function updatePrompt(prompt: Omit<SystemPrompt, "active">) {
+  return request<SystemPrompt>(`/developer/prompts/${encodeURIComponent(prompt.id)}`, {
+    method: "PUT",
+    body: JSON.stringify(prompt),
+  });
+}
+
+export function deletePrompt(promptId: string) {
+  return request<void>(`/developer/prompts/${encodeURIComponent(promptId)}`, { method: "DELETE" });
+}
+
+export function previewPrompt(template: string) {
+  return request<{ preview: string }>("/developer/prompts/preview", {
+    method: "POST",
+    body: JSON.stringify({ template }),
   });
 }

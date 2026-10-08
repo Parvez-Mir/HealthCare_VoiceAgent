@@ -25,7 +25,8 @@ biomarker details, and patient CRUD. Slot and call-management screens are
 available in the Admin module. Slot editing protects booked slots, and call
 dispatch requires confirmation and uses only the selected patient's stored
 phone number. Developer configuration and prompt management are added
-incrementally in Phase 4.
+incrementally in Phase 4. The Developer module now provides masked runtime
+configuration, configuration checks, and system-prompt CRUD with preview.
 
 ## Initial setup
 

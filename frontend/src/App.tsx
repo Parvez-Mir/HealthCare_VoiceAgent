@@ -3,16 +3,26 @@ import { AuthProvider, LoginPage, useAuth } from "./auth";
 import {
   ApiError,
   createPatient,
+  createPrompt,
   createSlot,
+  deletePrompt,
   deletePatient,
   deleteSlot,
   dispatchPatientCall,
   getDashboardSummary,
+  getDeveloperConfig,
   getPatients,
+  getPrompts,
   getSlots,
+  previewPrompt,
+  testDeveloperConfig,
   type Patient,
   type Slot,
+  type ConfigSetting,
+  type SystemPrompt,
+  updateDeveloperConfig,
   updatePatient,
+  updatePrompt,
   updateSlot,
 } from "./api";
 
@@ -165,16 +175,7 @@ function Dashboard() {
               <SlotManager />
             </>
           ) : (
-            <section className="empty-panel">
-            <div className="empty-illustration" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </div>
-            <p className="eyebrow">Phase 4 foundation</p>
-            <h2>Your {content.label.toLowerCase()} workspace is ready</h2>
-            <p>The shared dashboard is connected. The {content.label.toLowerCase()} tools will be added in the next implementation slice.</p>
-            </section>
+            <DeveloperWorkspace onSummaryRefresh={() => void getDashboardSummary().then(setSummary)} />
           )}
         </div>
       </main>
@@ -511,6 +512,224 @@ function formatSlotTime(value: string) {
     timeStyle: "short",
     timeZone: "Asia/Kolkata",
   }).format(new Date(value));
+}
+
+const CONFIG_GROUPS = [
+  { title: "Model and voice", keys: ["OLLAMA_MODEL", "OLLAMA_BASE_URL", "ASSEMBLYAI_API_KEY", "CARTESIA_API_KEY", "CARTESIA_VOICE_ID"] },
+  { title: "LiveKit and calling", keys: ["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "SIP_OUTBOUND_TRUNK_ID"] },
+  { title: "Agent and evaluation", keys: ["PATIENT_ID", "AGENT_PROMPT_ID", "OPIK_API_KEY", "OPIK_WORKSPACE", "OPIK_PROJECT_NAME"] },
+];
+
+const CONFIG_LABELS: Record<string, string> = {
+  OLLAMA_MODEL: "Local model",
+  OLLAMA_BASE_URL: "Local model URL",
+  ASSEMBLYAI_API_KEY: "AssemblyAI API key",
+  CARTESIA_API_KEY: "Cartesia API key",
+  CARTESIA_VOICE_ID: "Cartesia voice ID",
+  LIVEKIT_URL: "LiveKit URL",
+  LIVEKIT_API_KEY: "LiveKit API key",
+  LIVEKIT_API_SECRET: "LiveKit API secret",
+  SIP_OUTBOUND_TRUNK_ID: "Outbound SIP trunk ID",
+  PATIENT_ID: "Default patient ID",
+  AGENT_PROMPT_ID: "Active prompt ID",
+  OPIK_API_KEY: "Opik API key",
+  OPIK_WORKSPACE: "Opik workspace",
+  OPIK_PROJECT_NAME: "Opik project",
+};
+
+function DeveloperWorkspace({ onSummaryRefresh }: { onSummaryRefresh: () => void }) {
+  const { signOut } = useAuth();
+  const [settings, setSettings] = useState<ConfigSetting[]>([]);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [prompts, setPrompts] = useState<SystemPrompt[]>([]);
+  const [selectedPrompt, setSelectedPrompt] = useState<SystemPrompt | null>(null);
+  const [isNewPrompt, setIsNewPrompt] = useState(false);
+  const [promptForm, setPromptForm] = useState({ id: "", description: "", template: "" });
+  const [preview, setPreview] = useState("");
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
+  const [isSavingPrompt, setIsSavingPrompt] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [health, setHealth] = useState("");
+
+  function handleUnauthorized(requestError: unknown) {
+    if (requestError instanceof ApiError && requestError.status === 401) {
+      void signOut();
+      return true;
+    }
+    return false;
+  }
+
+  function loadDeveloperData() {
+    setIsLoading(true);
+    Promise.all([getDeveloperConfig(), getPrompts()])
+      .then(([configResponse, promptResponse]) => {
+        setSettings(configResponse.settings);
+        setValues(Object.fromEntries(configResponse.settings.map((setting) => [setting.key, setting.value])));
+        setPrompts(promptResponse.prompts);
+        const active = promptResponse.prompts.find((prompt) => prompt.active) ?? promptResponse.prompts[0] ?? null;
+        if (active) {
+          setSelectedPrompt(active);
+          setPromptForm({ id: active.id, description: active.description, template: active.template });
+        }
+      })
+      .catch((requestError: unknown) => {
+        if (handleUnauthorized(requestError)) return;
+        setError(requestError instanceof Error ? requestError.message : "Developer settings could not be loaded.");
+      })
+      .finally(() => setIsLoading(false));
+  }
+
+  useEffect(() => {
+    loadDeveloperData();
+  }, []);
+
+  async function saveConfig(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setNotice("");
+    setIsSavingConfig(true);
+    try {
+      const response = await updateDeveloperConfig(values);
+      setSettings(response.settings);
+      setValues(Object.fromEntries(response.settings.map((setting) => [setting.key, setting.value])));
+      setNotice("Runtime configuration saved. Restart services if a setting is not picked up automatically.");
+      onSummaryRefresh();
+    } catch (requestError: unknown) {
+      if (handleUnauthorized(requestError)) return;
+      setError(requestError instanceof Error ? requestError.message : "Configuration could not be saved.");
+    } finally {
+      setIsSavingConfig(false);
+    }
+  }
+
+  async function runHealthCheck() {
+    setError("");
+    setHealth("");
+    try {
+      const result = await testDeveloperConfig();
+      setHealth(`${result.configured_count} of ${result.total_count} service groups configured.`);
+    } catch (requestError: unknown) {
+      if (handleUnauthorized(requestError)) return;
+      setError(requestError instanceof Error ? requestError.message : "Configuration test failed.");
+    }
+  }
+
+  function selectPrompt(prompt: SystemPrompt) {
+    setSelectedPrompt(prompt);
+    setIsNewPrompt(false);
+    setPromptForm({ id: prompt.id, description: prompt.description, template: prompt.template });
+    setPreview("");
+    setError("");
+  }
+
+  function startNewPrompt() {
+    setSelectedPrompt(null);
+    setIsNewPrompt(true);
+    setPromptForm({ id: "", description: "", template: "" });
+    setPreview("");
+    setError("");
+  }
+
+  async function selectActivePrompt(prompt: SystemPrompt) {
+    setError("");
+    try {
+      await updateDeveloperConfig({ AGENT_PROMPT_ID: prompt.id });
+      setPrompts((current) => current.map((item) => ({ ...item, active: item.id === prompt.id })));
+      setNotice(`Active prompt changed to ${prompt.id}.`);
+      onSummaryRefresh();
+    } catch (requestError: unknown) {
+      if (handleUnauthorized(requestError)) return;
+      setError(requestError instanceof Error ? requestError.message : "Active prompt could not be changed.");
+    }
+  }
+
+  async function savePrompt(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    setNotice("");
+    setIsSavingPrompt(true);
+    try {
+      const saved = isNewPrompt
+        ? await createPrompt(promptForm)
+        : await updatePrompt(promptForm);
+      setPrompts((current) => isNewPrompt ? [...current, { ...saved, active: false }] : current.map((item) => item.id === saved.id ? { ...saved, active: item.active } : item));
+      setSelectedPrompt({ ...saved, active: selectedPrompt?.active ?? false });
+      setIsNewPrompt(false);
+      setNotice("System prompt saved.");
+      onSummaryRefresh();
+    } catch (requestError: unknown) {
+      if (handleUnauthorized(requestError)) return;
+      setError(requestError instanceof Error ? requestError.message : "Prompt could not be saved.");
+    } finally {
+      setIsSavingPrompt(false);
+    }
+  }
+
+  async function removePrompt() {
+    if (!selectedPrompt || !window.confirm(`Delete the prompt "${selectedPrompt.id}"?`)) return;
+    setError("");
+    try {
+      await deletePrompt(selectedPrompt.id);
+      const remaining = prompts.filter((prompt) => prompt.id !== selectedPrompt.id);
+      setPrompts(remaining);
+      if (remaining[0]) selectPrompt(remaining[0]);
+      else startNewPrompt();
+      setNotice("System prompt deleted.");
+      onSummaryRefresh();
+    } catch (requestError: unknown) {
+      if (handleUnauthorized(requestError)) return;
+      setError(requestError instanceof Error ? requestError.message : "Prompt could not be deleted.");
+    }
+  }
+
+  async function showPreview() {
+    setError("");
+    try {
+      const response = await previewPrompt(promptForm.template);
+      setPreview(response.preview);
+    } catch (requestError: unknown) {
+      if (handleUnauthorized(requestError)) return;
+      setError(requestError instanceof Error ? requestError.message : "Prompt preview failed.");
+    }
+  }
+
+  return (
+    <div className="developer-workspace">
+      {isLoading && <p className="muted-message">Loading developer settings…</p>}
+      <section className="developer-card">
+        <div className="developer-card-header"><div><p className="eyebrow">Runtime configuration</p><h2>Providers and environment</h2><p>Secret values are masked and are never returned to the browser.</p></div><button className="button button-secondary" onClick={runHealthCheck} type="button">Test configuration</button></div>
+        <form className="config-form" onSubmit={saveConfig}>
+          {CONFIG_GROUPS.map((group) => (
+            <fieldset key={group.title}><legend>{group.title}</legend><div className="config-grid">
+              {group.keys.map((key) => {
+                const setting = settings.find((item) => item.key === key);
+                return <label key={key}>{CONFIG_LABELS[key]}{setting?.secret ? <input type="password" value={values[key] ?? ""} placeholder={setting.masked || "Not configured"} onChange={(event) => setValues({ ...values, [key]: event.target.value })} /> : <input value={values[key] ?? ""} onChange={(event) => setValues({ ...values, [key]: event.target.value })} /> }<small>{setting?.configured ? setting.secret ? "Configured · leave blank to preserve" : "Configured" : "Not configured"}</small></label>;
+              })}
+            </div></fieldset>
+          ))}
+          <div className="form-actions"><button className="button button-primary" disabled={isSavingConfig} type="submit">{isSavingConfig ? "Saving…" : "Save configuration"}</button>{health && <span className="form-success">{health}</span>}</div>
+        </form>
+      </section>
+
+      <section className="developer-card">
+        <div className="developer-card-header"><div><p className="eyebrow">System prompts</p><h2>Prompt versions</h2><p>Use supported variables: {"{patient_name}"}, {"{glucose_mg_dl}"}, {"{hba1c_percent}"}.</p></div><button className="button button-primary" onClick={startNewPrompt} type="button">New prompt</button></div>
+        <div className="prompt-layout">
+          <div className="prompt-list">{prompts.map((prompt) => <button className={`prompt-list-item ${selectedPrompt?.id === prompt.id ? "selected" : ""}`} key={prompt.id} onClick={() => selectPrompt(prompt)} type="button"><span><strong>{prompt.id}</strong><small>{prompt.description}</small></span>{prompt.active && <em>Active</em>}</button>)}</div>
+          <form className="prompt-editor" onSubmit={savePrompt}>
+            <label>Prompt ID<input value={promptForm.id} disabled={!isNewPrompt} onChange={(event) => setPromptForm({ ...promptForm, id: event.target.value })} required /></label>
+            <label>Description<input value={promptForm.description} onChange={(event) => setPromptForm({ ...promptForm, description: event.target.value })} required /></label>
+            <label>Template<textarea value={promptForm.template} onChange={(event) => setPromptForm({ ...promptForm, template: event.target.value })} rows={10} required /></label>
+            <div className="form-actions"><button className="button button-primary" disabled={isSavingPrompt} type="submit">{isSavingPrompt ? "Saving…" : "Save prompt"}</button><button className="button button-secondary" onClick={showPreview} type="button">Preview</button>{selectedPrompt && <button className="button button-danger" onClick={removePrompt} type="button">Delete</button>}{selectedPrompt && !selectedPrompt.active && <button className="button button-secondary" onClick={() => void selectActivePrompt(selectedPrompt)} type="button">Set active</button>}</div>
+            {preview && <div className="prompt-preview"><strong>Preview with dummy values</strong><pre>{preview}</pre></div>}
+          </form>
+        </div>
+      </section>
+      {error && <p className="form-error developer-message" role="alert">{error}</p>}
+      {notice && <p className="form-success developer-message" role="status">{notice}</p>}
+    </div>
+  );
 }
 
 export function App() {

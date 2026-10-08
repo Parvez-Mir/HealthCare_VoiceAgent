@@ -225,11 +225,22 @@ fall back to success.
   status, and booked-slot edit/delete protection.
 - Added a confirmed single-patient call action that dispatches only to the
   selected patient's stored phone number and returns the LiveKit room.
+- Added protected Developer configuration endpoints for all
+  `.env.example` settings, masked secret handling, atomic `.env` updates, and
+  non-secret configuration health checks.
+- Added protected system-prompt CRUD, active-prompt selection, supported
+  variable validation, and dummy-value preview endpoints.
+- Added the Developer configuration and prompt editor UI with responsive
+  provider sections, secret preservation behavior, health checks, prompt
+  preview, and active/deletion safeguards.
 - Verified the frontend production build with `npm run build`.
 - Smoke-tested backend login and the protected dashboard summary endpoint.
 - Smoke-tested the complete patient CRUD lifecycle with a temporary record.
 - Smoke-tested the complete slot CRUD lifecycle with a temporary slot.
+- Smoke-tested masked configuration output, configuration checks, prompt
+  preview, prompt validation, and temporary prompt CRUD.
 
 ### Next
 
-- Implement Developer configuration and system-prompt workflows.
+- Run an end-to-end manual pass across both modules and refine any UX issues.
+- Add focused automated API/component tests for the completed Phase 4 flows.
