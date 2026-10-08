@@ -18,11 +18,11 @@
 ## Done when
 
 - [x] `uvicorn` starts the backend and both endpoints work.
-- [ ] One command starts the agent in console mode for a given patient ID from `patients.json`.
-- [ ] The agent greets the patient by name and reads out the correct biomarker values.
-- [ ] You can say "yes, book me in", and the agent calls the booking tool and confirms the slot.
-- [ ] If you decline, the agent ends politely without booking.
-- [ ] You can see the tool calls and results in the terminal logs.
+- [X] One command starts the agent in console mode for a given patient ID from `patients.json`.
+- [X] The agent greets the patient by name and reads out the correct biomarker values.
+- [X] You can say "yes, book me in", and the agent calls the booking tool and confirms the slot.
+- [X] If you decline, the agent ends politely without booking.
+- [X] You can see the tool calls and results in the terminal logs.
 
 ## Out of scope for Phase 1
 
@@ -40,7 +40,7 @@ Patient data comes from a local JSON file, and FastAPI handles only the booking 
 
 ### Current phase
 
-**Phase 1 — Dummy data and booking backend**
+**Phase 1 — Complete.** Work continues in [phase2.md](./phase2.md).
 
 ### Completed
 
@@ -61,11 +61,3 @@ Patient data comes from a local JSON file, and FastAPI handles only the booking 
 - Disabled preemptive generation and assistant barge-in so spoken responses finish before the next turn.
 - Added LiveKit BVC noise cancellation to the room microphone input.
 - Configured VAD-based barge-in with a 150 ms threshold so patient speech stops assistant playback promptly.
-
-### Currently working on
-
-- Verifying the room-based voice agent with AssemblyAI, Gemini, Cartesia, and LiveKit credentials.
-
-### Next
-
-- Run the complete spoken conversation and mark the remaining Phase 1 checklist items.

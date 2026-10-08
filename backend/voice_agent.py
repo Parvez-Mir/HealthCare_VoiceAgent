@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 from dotenv import load_dotenv
+from livekit import api
 from livekit.agents import (
     Agent,
     AgentServer,
@@ -29,6 +30,7 @@ load_dotenv(Path(__file__).with_name(".env"))
 logger = logging.getLogger("healthcare-voice-agent")
 PATIENTS_PATH = Path(__file__).with_name("patients.json")
 DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
+AGENT_NAME = "healthcare-agent"
 server = AgentServer()
 
 
@@ -99,9 +101,47 @@ class HealthcareAgent(Agent):
         return json.dumps(booking)
 
 
-@server.rtc_session()
+def read_call_request(ctx: JobContext) -> dict[str, Any]:
+    if not ctx.job.metadata:
+        return {}
+    try:
+        request = json.loads(ctx.job.metadata)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("Dispatch metadata is not valid JSON") from error
+    return request if isinstance(request, dict) else {}
+
+
+async def dial_patient(ctx: JobContext, phone_number: str) -> None:
+    trunk_id = os.getenv("SIP_OUTBOUND_TRUNK_ID")
+    if not trunk_id:
+        raise RuntimeError("SIP_OUTBOUND_TRUNK_ID is required for outbound calls")
+    logger.info("Dialing %s through trunk %s", phone_number, trunk_id)
+    try:
+        await ctx.api.sip.create_sip_participant(
+            api.CreateSIPParticipantRequest(
+                room_name=ctx.room.name,
+                sip_trunk_id=trunk_id,
+                sip_call_to=phone_number,
+                participant_identity=f"phone-{phone_number}",
+                participant_name="Patient",
+                wait_until_answered=True,
+            )
+        )
+    except api.TwirpError as error:
+        sip_status = error.metadata.get("sip_status_code", "unknown")
+        raise RuntimeError(
+            f"Outbound call failed: {error.message} (SIP status {sip_status})"
+        ) from error
+    logger.info("Call answered by %s", phone_number)
+
+
+@server.rtc_session(agent_name=AGENT_NAME)
 async def entrypoint(ctx: JobContext) -> None:
-    patient_id = os.getenv("PATIENT_ID", "patient-001")
+    call_request = read_call_request(ctx)
+    phone_number = call_request.get("phone_number")
+    patient_id = call_request.get("patient_id") or os.getenv(
+        "PATIENT_ID", "patient-001"
+    )
     patient = load_patient(patient_id)
     backend_url = os.getenv("BACKEND_URL", DEFAULT_BACKEND_URL)
     assemblyai_api_key = os.getenv("ASSEMBLYAI_API_KEY")
@@ -114,6 +154,13 @@ async def entrypoint(ctx: JobContext) -> None:
     ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1")
 
     await ctx.connect()
+    if phone_number:
+        try:
+            await dial_patient(ctx, phone_number)
+        except RuntimeError:
+            logger.exception("Outbound call was not connected; ending the job")
+            ctx.shutdown()
+            return
     session = AgentSession(
         stt=assemblyai.STT(
             api_key=assemblyai_api_key,
@@ -154,7 +201,11 @@ async def entrypoint(ctx: JobContext) -> None:
         room=ctx.room,
         room_options=room_io.RoomOptions(
             audio_input=room_io.AudioInputOptions(
-                noise_cancellation=noise_cancellation.BVC(),
+                noise_cancellation=(
+                    noise_cancellation.BVCTelephony()
+                    if phone_number
+                    else noise_cancellation.BVC()
+                ),
             ),
         ),
     )

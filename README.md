@@ -67,3 +67,41 @@ cd backend
 The agent reads the patient selected by `PATIENT_ID` from `patients.json`. Set
 `BACKEND_URL` in `backend/.env` only when the booking backend is running at a
 different URL. LiveKit BVC noise cancellation is enabled for microphone input.
+
+## Outbound calls (LiveKit Telephony)
+
+One-time setup in the LiveKit Cloud dashboard:
+
+1. LiveKit-purchased numbers currently support inbound calls only, so outbound
+   calls need a SIP carrier (for example Twilio or Telnyx). In the carrier's
+   console, create an outbound SIP trunk and buy or verify a number.
+2. In the LiveKit dashboard under Telephony, create an **outbound SIP trunk**
+   using the carrier's SIP hostname (no `sip:` prefix), transport, credentials,
+   and the carrier number as the caller ID. Copy its trunk ID (`ST_...`).
+3. Set `SIP_OUTBOUND_TRUNK_ID` in `backend/.env`, along with `LIVEKIT_URL`,
+   `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET`.
+
+The LLM is not configured in LiveKit. The agent worker runs on your machine and
+calls Ollama directly, so Ollama must be running locally.
+
+Run each in its own terminal from `backend/`:
+
+```bash
+.venv/bin/python -m uvicorn app:app --reload   # booking backend
+.venv/bin/python voice_agent.py dev            # agent worker
+.venv/bin/python make_call.py patient-001 +14155550123
+```
+
+`make_call.py` takes a patient ID and the test phone number (E.164) and places
+exactly one call; there is no retry or batch dialing. The worker dials the
+number, waits for it to be answered, and starts the conversation. Dial failures
+(including the SIP status code) are logged in the worker terminal.
+
+Only call phones whose owners know it is a test. Keep `patients.json` to dummy
+data; do not commit real phone numbers. Use the patient's `phone` only as a
+placeholder; the destination is whatever you pass to `make_call.py`.
+
+If you see `CERTIFICATE_VERIFY_FAILED` with python.org Python on macOS, run
+`export SSL_CERT_FILE=$(.venv/bin/python -c "import certifi;print(certifi.where())")`
+in each terminal (or run the "Install Certificates.command" that ships with
+Python).
