@@ -27,6 +27,9 @@ dispatch requires confirmation and uses only the selected patient's stored
 phone number. Developer configuration and prompt management are added
 incrementally in Phase 4. The Developer module now provides masked runtime
 configuration, configuration checks, and system-prompt CRUD with preview.
+Configuration changes are written to `backend/.env`; the voice worker reloads
+that file when each new call starts. An already active call keeps the settings
+it started with.
 
 ## Initial setup
 
@@ -150,7 +153,8 @@ Each call (console or outbound) is saved to its own git-ignored folder under
   the right.
 - `call.json`: call metadata and variables (patient, phone number, biomarkers,
   start/end time), the live transcript, every tool call with its arguments and
-  result, and the recording path.
+  result, the recording path, and a non-secret snapshot of the configuration
+  used for that call.
 - `analysis.json`: the post-call analysis (see below).
 
 The transcript is captured during the call from the agent's own speech-to-text
@@ -158,6 +162,11 @@ and replies, so no second transcription is needed. The worker logs `Capturing ca
 the start and `Saved call data to …` at the end. Calls contain health
 conversations, so use dummy patients and test callers only. A capture failure
 is logged and never interrupts the call.
+
+Configuration snapshots exclude API keys, secrets, and other credential values.
+Post-call analysis uses the saved model and endpoint snapshot, so changing
+Developer settings between calls does not change how an earlier call is
+analyzed.
 
 ## Post-call analysis
 

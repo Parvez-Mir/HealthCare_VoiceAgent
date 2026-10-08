@@ -11,7 +11,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).with_name(".env"))
+load_dotenv(Path(__file__).with_name(".env"), override=True)
 logger = logging.getLogger("healthcare-voice-agent")
 
 
@@ -93,6 +93,7 @@ def send_call_to_opik(call_dir: Path) -> str | None:
                 "recording_path": call.get("recording_path"),
                 "tool_calls": call["tool_calls"],
                 "analysis": analysis,
+                "config_snapshot": call.get("config_snapshot"),
                 "evaluations": {
                     "PII_handling": analysis.get("PII_handling"),
                 },

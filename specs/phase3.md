@@ -117,6 +117,9 @@ scores each completed call automatically.
   `PII_handling`. It runs after the analysis with a three-line hook in
   `post_call_analysis.py`. Verified by
   reading traces back from Opik for a real and a simulated call.
+- Added a non-secret configuration snapshot to each `call.json`. The saved
+  model, endpoint, voice, prompt, and backend settings are used for that call's
+  post-call analysis and Opik metadata even if Developer settings change later.
 - Added a PII handling evaluation field to `analysis.json`. It checks that
   identity is confirmed before patient-specific details are shared and that no
   unnecessary personal or health information is disclosed. Booking results

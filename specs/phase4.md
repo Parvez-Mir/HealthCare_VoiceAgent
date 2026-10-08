@@ -233,6 +233,9 @@ fall back to success.
 - Added the Developer configuration and prompt editor UI with responsive
   provider sections, secret preservation behavior, health checks, prompt
   preview, and active/deletion safeguards.
+- Made runtime configuration changes effective for subsequent calls by
+  reloading `backend/.env` at each voice-agent session start; active calls
+  retain their original configuration.
 - Verified the frontend production build with `npm run build`.
 - Smoke-tested backend login and the protected dashboard summary endpoint.
 - Smoke-tested the complete patient CRUD lifecycle with a temporary record.

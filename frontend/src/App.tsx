@@ -594,7 +594,7 @@ function DeveloperWorkspace({ onSummaryRefresh }: { onSummaryRefresh: () => void
       const response = await updateDeveloperConfig(values);
       setSettings(response.settings);
       setValues(Object.fromEntries(response.settings.map((setting) => [setting.key, setting.value])));
-      setNotice("Runtime configuration saved. Restart services if a setting is not picked up automatically.");
+      setNotice("Saved to backend/.env. New calls will use these settings; an active call keeps its current configuration.");
       onSummaryRefresh();
     } catch (requestError: unknown) {
       if (handleUnauthorized(requestError)) return;

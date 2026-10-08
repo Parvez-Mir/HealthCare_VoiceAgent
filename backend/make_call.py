@@ -11,7 +11,7 @@ from livekit import api
 
 from voice_agent import AGENT_NAME, load_patient
 
-load_dotenv(Path(__file__).with_name(".env"))
+load_dotenv(Path(__file__).with_name(".env"), override=True)
 E164 = re.compile(r"^\+[1-9]\d{7,14}$")
 
 
