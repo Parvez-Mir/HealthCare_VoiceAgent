@@ -47,6 +47,7 @@ def send_call_to_opik(call_dir: Path) -> str | None:
                 "recording_path": call.get("recording_path"),
                 "tool_calls": call["tool_calls"],
                 "analysis": analysis,
+                "latency": call.get("latency", {}),
                 **variables,
             },
             tags=["outbound-call"],

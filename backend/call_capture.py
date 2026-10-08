@@ -22,6 +22,33 @@ def _iso(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp, timezone.utc).isoformat()
 
 
+LATENCY_KEYS = (
+    "e2e_latency",
+    "llm_node_ttft",
+    "tts_node_ttfb",
+    "transcription_delay",
+    "end_of_turn_delay",
+)
+
+
+def _latency_summary(transcript: list[dict[str, Any]]) -> dict[str, Any]:
+    """Seconds: avg / p95 / max per metric across turns."""
+    summary: dict[str, Any] = {}
+    for key in LATENCY_KEYS:
+        values = sorted(
+            t["metrics"][key] for t in transcript if key in t.get("metrics", {})
+        )
+        if values:
+            p95 = values[min(len(values) - 1, int(0.95 * len(values)))]
+            summary[key] = {
+                "avg": round(sum(values) / len(values), 3),
+                "p95": round(p95, 3),
+                "max": round(values[-1], 3),
+                "turns": len(values),
+            }
+    return summary
+
+
 class CallCapture:
     """Save audio and transcript under calls/<room>/. Never affects the live call.
 
@@ -63,6 +90,12 @@ class CallCapture:
                     "role": "patient" if item.role == "user" else "agent",
                     "text": text,
                     "interrupted": item.interrupted,
+                    "metrics": {
+                        k: v
+                        for k, v in (item.metrics or {}).items()
+                        if isinstance(v, (int, float))
+                        and k not in ("started_speaking_at", "stopped_speaking_at")
+                    },
                     "at": _iso(event.created_at),
                 }
             )
@@ -112,6 +145,7 @@ class CallCapture:
                         "ended_at": _iso(time.time()),
                         **self._metadata,
                         "recording_path": recording,
+                        "latency": _latency_summary(self._transcript),
                         "transcript": self._transcript,
                         "tool_calls": self._tool_calls,
                     },
