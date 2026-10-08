@@ -1,5 +1,7 @@
 import json
 import logging
+import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -120,3 +122,24 @@ class CallCapture:
             logger.info("Saved call data to %s", self._call_dir)
         except Exception:
             logger.exception("Could not save call transcript")
+            return
+        self._start_analysis()
+
+    def _start_analysis(self) -> None:
+        """Run the analysis in a detached process: the worker's shutdown window
+        is short and a local model can take longer than that."""
+        try:
+            with (self._call_dir / "analysis.log").open("wb") as log:
+                subprocess.Popen(
+                    [
+                        sys.executable,
+                        str(Path(__file__).with_name("post_call_analysis.py")),
+                        str(self._call_dir),
+                    ],
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,
+                )
+            logger.info("Started post-call analysis for %s", self._room)
+        except Exception:
+            logger.exception("Could not start post-call analysis")

@@ -117,9 +117,45 @@ Each call (console or outbound) is saved to its own git-ignored folder,
   start/end time), the live transcript, every tool call with its arguments and
   result, and the recording path.
 
+- `analysis.json`: the post-call analysis (see below).
+
 The transcript is captured during the call from the agent's own speech-to-text
-and replies, so no second transcription is needed. Later phases add
-`analysis.json` to the same folder. The worker logs `Capturing call to …` at
+and replies, so no second transcription is needed. The worker logs `Capturing call to …` at
 the start and `Saved call data to …` at the end. Calls contain health
 conversations, so use dummy patients and test callers only. A capture failure
 is logged and never interrupts the call.
+
+## Post-call analysis
+
+When a call ends, a detached background process runs
+[`post_call_analysis.py`](./backend/post_call_analysis.py) and writes
+`analysis.json` into the call folder (progress goes to `analysis.log`). It uses
+the local Ollama model, so Ollama must be running.
+
+```json
+{
+  "appointment_booked": true,
+  "confirmation_id": "confirm-9",
+  "outcome": "booked",
+  "summary": "...",
+  "agent_claimed_booking": true,
+  "claim_matches_tool_result": true,
+  "analysis_error": null
+}
+```
+
+- `appointment_booked` comes only from a successful `book_appointment` tool
+  result, never from the transcript.
+- `outcome` is one of `booked`, `declined`, `interested_not_booked`,
+  `undecided`, or `no_conversation` (the patient never spoke).
+- `claim_matches_tool_result` is false when the agent told the patient they
+  were booked but no booking was recorded.
+- If the model fails, the booking fields are still set and `analysis_error`
+  explains why.
+
+Re-run it for any saved call:
+
+```bash
+cd backend
+.venv/bin/python post_call_analysis.py calls/<room-name>
+```

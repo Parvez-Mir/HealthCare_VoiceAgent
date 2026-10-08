@@ -100,9 +100,16 @@ scores each completed call automatically.
 - Added `backend/call_capture.py`, which saves each call's audio, transcript,
   and tool calls under `backend/calls/<room>/` and is started from the agent
   session. Verified with simulated events; a live call still needs checking.
+- Added `backend/post_call_analysis.py`. It writes `analysis.json` per call in a
+  detached process (LiveKit's shutdown window is only 10 seconds). It sets
+  `appointment_booked` from the booking tool result and uses the local Ollama
+  model for `outcome`, `summary`, and whether the agent claimed a booking,
+  flagging mismatches in `claim_matches_tool_result`. Verified on simulated
+  booked, declined, undecided, interested, false-claim, and no-answer calls and
+  on a real call; the booked path still needs a live call.
 
 ### Next
 
-- Confirm the open items above.
-- Capture call data and add the post-call analysis.
+- Confirm the evaluation rule (open item above).
+- Check a live accepted and a live declined call against `analysis.json`.
 - Build `opik_integration.py` and the online evaluation.
