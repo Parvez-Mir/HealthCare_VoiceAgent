@@ -6,6 +6,7 @@ from typing import Any
 
 import httpx
 from dotenv import load_dotenv
+from call_capture import start_call_capture
 from livekit import api
 from livekit.agents import (
     Agent,
@@ -208,6 +209,16 @@ async def entrypoint(ctx: JobContext) -> None:
                 ),
             ),
         ),
+    )
+    await start_call_capture(
+        ctx,
+        session,
+        {
+            "patient_id": patient["id"],
+            "patient_name": patient["name"],
+            "phone_number": phone_number,
+            "biomarkers": patient["biomarkers"],
+        },
     )
     await session.generate_reply(
         instructions=(

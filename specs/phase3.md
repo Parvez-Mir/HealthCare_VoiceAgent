@@ -1,0 +1,108 @@
+# Phase 3: Recording, post-call analysis, and Opik
+
+## Outcome
+
+After each outbound call ends, the system produces a post-call analysis with a
+clear `appointment_booked` true/false, and sends one Opik trace per call that
+contains the call metadata and variables, transcript, recording reference, tool
+calls and results, and the analysis. At least one online evaluation in Opik
+scores each completed call automatically.
+
+## Decisions
+
+- All Opik code lives in one standalone file, `backend/opik_integration.py`,
+  wired into the agent with only a few lines.
+- Opik logging must never block or crash a live call. Failures are caught and
+  logged.
+- `appointment_booked` comes from the actual booking tool result, not only from
+  the transcript, so the analysis can be checked against it.
+- Store each call in one folder, `backend/calls/<room>/`, containing
+  `audio.ogg` and `call.json` (metadata, transcript, tool calls); the analysis
+  step adds `analysis.json`. The trace stores the audio path as the recording
+  reference. `calls/` is git-ignored.
+- Capture the transcript live from the session's conversation items and tool
+  events instead of transcribing the recording afterwards.
+  Cloud storage (for example S3 with LiveKit egress) is a possible later step.
+- Keep the existing providers (Ollama, AssemblyAI, Cartesia). Opik is already
+  part of the project stack; do not add any other new paid service without
+  asking.
+- Model speed, voice quality, and agent persona tuning are deferred and are not
+  part of this phase.
+
+## Open items to confirm before building
+
+- **Analysis model:** use the local Ollama model for the post-call analysis, or
+  another model already in the stack.
+- **Evaluation:** choose the online evaluation rule, for example "booking claim
+  matches tool result" or "biomarker values stated match the patient record".
+
+## What to build
+
+1. **Call data capture**: collect, per call, the metadata and variables
+   (patient ID, name, destination, biomarkers, room, start/end time), the
+   transcript, and every tool call with its arguments and result.
+2. **Recording**: record each call's audio to a local file and keep its path as
+   the recording reference. A recording failure is caught and logged and never
+   interrupts the call.
+3. **Post-call analysis**: after the call ends, analyze the transcript and tool
+   results and output structured JSON that includes `appointment_booked`
+   (true/false), the outcome, and a short summary. `appointment_booked` must
+   match the booking tool's result.
+4. **Opik integration** (`opik_integration.py`): send one trace per call
+   containing the five data items: call metadata and variables, transcript,
+   recording reference, tool calls and results, and the analysis.
+5. **Online evaluation**: configure at least one Opik online evaluation rule
+   that runs automatically on completed calls and shows a score on the trace.
+6. **Documentation**: README setup for Opik credentials, recording, and a demo
+   walkthrough from call to trace and evaluation score. Add Opik settings to
+   `.env.example`.
+
+## Done when
+
+- [ ] Each call produces a local recording file with its path stored as the
+  reference.
+- [ ] Post-call analysis outputs `appointment_booked` true/false that matches
+  the booking tool result for accepted and declined calls.
+- [ ] One Opik trace per call contains all five data items.
+- [ ] At least one online evaluation rule runs automatically and shows a score
+  on the trace.
+- [ ] Opik code is only in `opik_integration.py`, wired into the agent with a
+  few lines.
+- [ ] An Opik outage or invalid credentials does not interrupt a call; the
+  error is logged.
+- [ ] A fresh setup following the README works end to end without exposing
+  secrets.
+- [ ] A demo covers the full flow: call, post-call analysis, Opik trace,
+  evaluation.
+
+## Out of scope
+
+- Model, latency, and audio-quality optimization
+- Agent persona changes
+- Automated, scheduled, or batch calls
+- Cloud recording storage
+- Real patient data, real appointment scheduling, or EHR integration
+
+## Exit conditions
+
+- If Opik credentials or API calls fail repeatedly, stop and report instead of
+  working around them.
+- If a requirement can't be met as written, report what blocked it instead of silently changing scope.
+
+## Progress tracking
+
+### Current phase
+
+**Phase 3 — Recording, post-call analysis, and Opik**
+
+### Completed
+
+- Added `backend/call_capture.py`, which saves each call's audio, transcript,
+  and tool calls under `backend/calls/<room>/` and is started from the agent
+  session. Verified with simulated events; a live call still needs checking.
+
+### Next
+
+- Confirm the open items above.
+- Capture call data and add the post-call analysis.
+- Build `opik_integration.py` and the online evaluation.
