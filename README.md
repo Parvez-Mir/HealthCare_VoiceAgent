@@ -4,6 +4,29 @@ Healthcare voice agent with a FastAPI backend and LiveKit-based voice
 integration. Backend-specific code and dependencies live in
 [`backend/`](./backend/).
 
+## Operations dashboard
+
+The Phase 4 frontend lives in [`frontend/`](./frontend/). Start it separately
+from the backend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Open the Vite URL shown in the terminal. The current development account is
+`admin@careline.dev` with password `careline-dev`. Authentication is
+intentionally hard-coded for this phase and is not suitable for production.
+The FastAPI backend must be running for sign-in and dashboard data. The shared
+dashboard shell currently provides Admin and Developer module switching; the
+Admin module now includes the protected patient directory with search,
+biomarker details, and patient CRUD. Slot and call-management screens are
+available in the Admin module. Slot editing protects booked slots, and call
+dispatch requires confirmation and uses only the selected patient's stored
+phone number. Developer configuration and prompt management are added
+incrementally in Phase 4.
+
 ## Initial setup
 
 The project uses Python, FastAPI for the booking backend, and LiveKit Agents for

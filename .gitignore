@@ -10,3 +10,7 @@ __pycache__/
 
 # Local call data (audio and transcripts)
 calls/
+
+# Frontend build output and dependencies
+frontend/node_modules/
+frontend/dist/
