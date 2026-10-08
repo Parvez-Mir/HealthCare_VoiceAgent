@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 from dotenv import load_dotenv
-from call_capture import start_call_capture
+from call_capture import CallCapture
 from livekit import api
 from livekit.agents import (
     Agent,
@@ -197,6 +197,16 @@ async def entrypoint(ctx: JobContext) -> None:
             ),
         ),
     )
+    capture = CallCapture(
+        ctx,
+        session,
+        {
+            "patient_id": patient["id"],
+            "patient_name": patient["name"],
+            "phone_number": phone_number,
+            "biomarkers": patient["biomarkers"],
+        },
+    )
     await session.start(
         agent=HealthcareAgent(patient, backend_url),
         room=ctx.room,
@@ -210,16 +220,7 @@ async def entrypoint(ctx: JobContext) -> None:
             ),
         ),
     )
-    await start_call_capture(
-        ctx,
-        session,
-        {
-            "patient_id": patient["id"],
-            "patient_name": patient["name"],
-            "phone_number": phone_number,
-            "biomarkers": patient["biomarkers"],
-        },
-    )
+    await capture.start_recording()
     await session.generate_reply(
         instructions=(
             f"Greet {patient['name']}, confirm their identity, and explain that "
