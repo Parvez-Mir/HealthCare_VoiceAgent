@@ -33,6 +33,8 @@ logger = logging.getLogger("healthcare-voice-agent")
 # Cartesia "Fiona - Witty Woman"
 DEFAULT_CARTESIA_VOICE_ID = "a01c369f-6d2d-4185-bc20-b32c225eab70"
 PATIENTS_PATH = Path(__file__).with_name("patients.json")
+AGENT_PROMPTS_PATH = Path(__file__).with_name("agent_prompts.json")
+DEFAULT_AGENT_PROMPT_ID = "flora-healthcare-agent-v1"
 DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
 AGENT_NAME = "healthcare-agent"
 server = AgentServer()
@@ -48,25 +50,34 @@ def load_patient(patient_id: str) -> dict[str, Any]:
     raise ValueError(f"Patient '{patient_id}' was not found in {PATIENTS_PATH}")
 
 
+def load_agent_prompt(prompt_id: str | None = None) -> tuple[str, str]:
+    selected_id = prompt_id or os.getenv(
+        "AGENT_PROMPT_ID", DEFAULT_AGENT_PROMPT_ID
+    )
+    with AGENT_PROMPTS_PATH.open(encoding="utf-8") as prompts_file:
+        prompts = json.load(prompts_file)
+
+    for prompt in prompts:
+        if prompt.get("id") == selected_id:
+            template = prompt.get("template")
+            if not isinstance(template, str):
+                raise ValueError(
+                    f"Prompt '{selected_id}' has no valid template in "
+                    f"{AGENT_PROMPTS_PATH}"
+                )
+            return selected_id, template
+    raise ValueError(f"Prompt '{selected_id}' was not found in {AGENT_PROMPTS_PATH}")
+
+
 def patient_instructions(patient: dict[str, Any]) -> str:
     biomarkers = patient["biomarkers"]
-    return f"""
-You are a friendly, concise healthcare appointment assistant.
-You are speaking with {patient["name"]}, whose identity has already been loaded
-from the clinic's dummy patient records. Confirm their name before discussing
-their results.
-
-The patient's recorded biomarkers are:
-- Blood glucose: {biomarkers["glucose_mg_dl"]} mg/dL
-- HbA1c: {biomarkers["hba1c_percent"]}%
-
-Only state those exact values. Do not diagnose, speculate, or invent medical
-advice. Explain that a clinician should interpret the results. Offer to arrange
-a consultation, and use the booking tools when the patient agrees. If the
-patient declines, thank them and end the conversation politely. Keep each
-spoken response to one or two short sentences unless the patient asks for more
-detail.
-""".strip()
+    _, template = load_agent_prompt()
+    return template.format(
+        patient_id=patient["id"],
+        patient_name=patient["name"],
+        glucose_mg_dl=biomarkers["glucose_mg_dl"],
+        hba1c_percent=biomarkers["hba1c_percent"],
+    )
 
 
 class HealthcareAgent(Agent):
@@ -74,11 +85,43 @@ class HealthcareAgent(Agent):
         super().__init__(instructions=patient_instructions(patient))
         self._backend_url = backend_url.rstrip("/")
         self._patient_id = patient["id"]
+        self._patient_name = patient["name"]
+        self._identity_verified = False
+
+    @function_tool(
+        description=(
+            "Verify the caller's patient ID and full patient name against the "
+            "clinic record before any patient information or booking tools are used."
+        )
+    )
+    async def verify_patient_identity(
+        self, patient_id: str, patient_name: str
+    ) -> str:
+        verified = (
+            patient_id.strip() == self._patient_id
+            and patient_name.strip().casefold() == self._patient_name.casefold()
+        )
+        if verified:
+            self._identity_verified = True
+            return json.dumps({"verified": True})
+        return json.dumps(
+            {
+                "verified": False,
+                "message": "Patient ID and patient name could not be verified.",
+            }
+        )
 
     @function_tool(
         description="Check the fake consultation slots currently available."
     )
     async def check_available_slots(self) -> str:
+        if not self._identity_verified:
+            return json.dumps(
+                {
+                    "error": "identity_verification_required",
+                    "message": "Verify the patient ID and name before checking slots.",
+                }
+            )
         logger.info("Calling GET %s/slots", self._backend_url)
         async with httpx.AsyncClient() as client:
             response = await client.get(f"{self._backend_url}/slots", timeout=10)
@@ -91,6 +134,13 @@ class HealthcareAgent(Agent):
         description="Book a consultation for this patient using an available slot ID."
     )
     async def book_appointment(self, slot_id: str) -> str:
+        if not self._identity_verified:
+            return json.dumps(
+                {
+                    "error": "identity_verification_required",
+                    "message": "Verify the patient ID and name before booking.",
+                }
+            )
         payload = {"patient_id": self._patient_id, "slot_id": slot_id}
         logger.info("Calling POST %s/appointments with %s", self._backend_url, payload)
         async with httpx.AsyncClient() as client:
@@ -210,6 +260,7 @@ async def entrypoint(ctx: JobContext) -> None:
             "patient_name": patient["name"],
             "phone_number": phone_number,
             "biomarkers": patient["biomarkers"],
+            "agent_prompt_id": load_agent_prompt()[0],
         },
     )
     await session.start(
@@ -228,8 +279,11 @@ async def entrypoint(ctx: JobContext) -> None:
     await capture.start_recording()
     await session.generate_reply(
         instructions=(
-            f"Greet {patient['name']}, confirm their identity, and explain that "
-            "you can review their recorded biomarkers and arrange a consultation."
+            "Use the active system prompt's opening exactly once. Introduce "
+            "yourself as Flora, explain that you are calling from the clinic "
+            "to verify identity, and ask for the caller's patient ID and full "
+            "patient name. Do not greet the caller by name or disclose any "
+            "patient information."
         )
     )
 

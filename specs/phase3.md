@@ -110,9 +110,14 @@ scores each completed call automatically.
 
 - Added `backend/opik_integration.py`. It sends one trace per call (variables,
   transcript, recording path, tool calls as spans, analysis) plus the scores
-  `appointment_booked` and `booking_claim_matches_tool_result`. It runs after
-  the analysis with a three-line hook in `post_call_analysis.py`. Verified by
+  `appointment_booked`, `booking_claim_matches_tool_result`, and
+  `PII_handling`. It runs after the analysis with a three-line hook in
+  `post_call_analysis.py`. Verified by
   reading traces back from Opik for a real and a simulated call.
+- Added a PII handling evaluation field to `analysis.json`. It checks that
+  identity is confirmed before patient-specific details are shared and that no
+  unnecessary personal or health information is disclosed. Booking results
+  include provider and appointment time.
 
 - Added live OpenTelemetry export of LiveKit's spans (STT, LLM, TTS timings) to
   Opik via `setup_live_tracing`; verified spans arriving in the Opik project.

@@ -17,6 +17,9 @@ class AppointmentResponse(BaseModel):
     confirmation_id: str
     patient_id: str
     slot_id: str
+    provider: str
+    starts_at: str
+    duration_minutes: int
     status: str
 
 
@@ -57,10 +60,14 @@ def book_appointment(request: AppointmentRequest) -> AppointmentResponse:
             raise HTTPException(status_code=409, detail="Appointment slot is no longer available")
         BOOKED_SLOTS.add(request.slot_id)
 
+    slot = next(slot for slot in SLOTS if slot["id"] == request.slot_id)
     return AppointmentResponse(
         confirmation_id=f"confirm-{uuid4().hex[:12]}",
         patient_id=request.patient_id,
         slot_id=request.slot_id,
+        provider=slot["provider"],
+        starts_at=slot["starts_at"],
+        duration_minutes=slot["duration_minutes"],
         status="booked",
     )
 

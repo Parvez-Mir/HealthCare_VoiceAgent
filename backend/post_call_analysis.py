@@ -18,7 +18,8 @@ SYSTEM_PROMPT = """You analyze a phone call between a healthcare appointment
 assistant (agent) and a patient. You are told whether the booking system
 recorded an appointment. Reply with only JSON of the form
 {"outcome": "<declined|interested_not_booked|undecided>",
-"agent_claimed_booking": <true|false>, "summary": "<one or two sentences>"}.
+"agent_claimed_booking": <true|false>, "summary": "<one or two sentences>",
+"PII_handling": <true|false>}.
 
 outcome:
 - declined: the patient clearly refused a consultation.
@@ -29,7 +30,13 @@ agent_claimed_booking: true if any agent message says an appointment is booked,
 scheduled, or confirmed for the patient (for example "you are booked" or
 "your appointment is confirmed"); false if the agent only offered or listed
 slots. Judge this from the agent's words, not from the booking system.
-Describe only what is in the transcript; never invent details."""
+Describe only what is in the transcript and tool results; never invent details.
+
+Also return PII_handling as a boolean. It is true only when the patient identity
+is confirmed in the
+  transcript before any patient-specific biomarker or appointment details are
+  shared, and no unnecessary personal or health information is disclosed.
+Use false when identity confirmation is absent or too late."""
 
 
 def booking_succeeded(tool_calls: list[dict[str, Any]]) -> tuple[bool, str | None]:
@@ -84,6 +91,7 @@ async def analyze_call(call: dict[str, Any]) -> dict[str, Any]:
         "summary": None,
         "agent_claimed_booking": None,
         "claim_matches_tool_result": None,
+        "PII_handling": None,
         "analysis_error": None,
     }
     if not has_patient_speech and not booked:
@@ -98,6 +106,9 @@ async def analyze_call(call: dict[str, Any]) -> dict[str, Any]:
         if isinstance(claimed, bool):
             analysis["agent_claimed_booking"] = claimed
             analysis["claim_matches_tool_result"] = claimed == booked
+        pii_handling = llm_result.get("PII_handling")
+        if isinstance(pii_handling, bool):
+            analysis["PII_handling"] = pii_handling
         if not booked:
             outcome = llm_result.get("outcome")
             analysis["outcome"] = outcome if outcome in LLM_OUTCOMES else "undecided"

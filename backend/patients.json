@@ -1,6 +1,6 @@
 [
   {
-    "id": "patient-001",
+    "id": "001",
     "name": "Saurabh Patil",
     "phone": "+1-555-0101",
     "biomarkers": {
@@ -9,7 +9,7 @@
     }
   },
   {
-    "id": "patient-002",
+    "id": "002",
     "name": "Daniel Brooks",
     "phone": "+1-555-0102",
     "biomarkers": {
@@ -18,7 +18,7 @@
     }
   },
   {
-    "id": "patient-003",
+    "id": "003",
     "name": "Meera Patel",
     "phone": "+1-555-0103",
     "biomarkers": {

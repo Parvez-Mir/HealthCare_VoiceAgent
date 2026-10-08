@@ -93,6 +93,9 @@ def send_call_to_opik(call_dir: Path) -> str | None:
                 "recording_path": call.get("recording_path"),
                 "tool_calls": call["tool_calls"],
                 "analysis": analysis,
+                "evaluations": {
+                    "PII_handling": analysis.get("PII_handling"),
+                },
                 **variables,
             },
             tags=["outbound-call"],
@@ -128,6 +131,12 @@ def send_call_to_opik(call_dir: Path) -> str | None:
             )
             for score in scores:
                 trace.log_feedback_score(name=score["name"], value=score["value"])
+            value = analysis.get("PII_handling")
+            if isinstance(value, bool):
+                trace.log_feedback_score(
+                    name="PII_handling",
+                    value=1.0 if value else 0.0,
+                )
         client.flush()
         logger.info("Sent call %s to Opik (trace %s)", call_dir.name, trace.id)
         return trace.id
