@@ -515,12 +515,16 @@ function formatSlotTime(value: string) {
 }
 
 const CONFIG_GROUPS = [
-  { title: "Model and voice", keys: ["OLLAMA_MODEL", "OLLAMA_BASE_URL", "ASSEMBLYAI_API_KEY", "CARTESIA_API_KEY", "CARTESIA_VOICE_ID"] },
+  { title: "LLM, model and voice", keys: ["LLM_PROVIDER", "LLM_MODEL", "LLM_BASE_URL", "LLM_API_KEY", "ASSEMBLYAI_API_KEY", "CARTESIA_API_KEY", "CARTESIA_VOICE_ID"] },
   { title: "LiveKit and calling", keys: ["LIVEKIT_URL", "LIVEKIT_API_KEY", "LIVEKIT_API_SECRET", "SIP_OUTBOUND_TRUNK_ID"] },
   { title: "Agent and evaluation", keys: ["PATIENT_ID", "AGENT_PROMPT_ID", "OPIK_API_KEY", "OPIK_WORKSPACE", "OPIK_PROJECT_NAME"] },
 ];
 
 const CONFIG_LABELS: Record<string, string> = {
+  LLM_PROVIDER: "LLM provider (ollama, openai, google, anthropic)",
+  LLM_MODEL: "LLM model",
+  LLM_BASE_URL: "LLM base URL (optional for native providers)",
+  LLM_API_KEY: "LLM API key",
   OLLAMA_MODEL: "Local model",
   OLLAMA_BASE_URL: "Local model URL",
   ASSEMBLYAI_API_KEY: "AssemblyAI API key",
@@ -705,7 +709,12 @@ function DeveloperWorkspace({ onSummaryRefresh }: { onSummaryRefresh: () => void
             <fieldset key={group.title}><legend>{group.title}</legend><div className="config-grid">
               {group.keys.map((key) => {
                 const setting = settings.find((item) => item.key === key);
-                return <label key={key}>{CONFIG_LABELS[key]}{setting?.secret ? <input type="password" value={values[key] ?? ""} placeholder={setting.masked || "Not configured"} onChange={(event) => setValues({ ...values, [key]: event.target.value })} /> : <input value={values[key] ?? ""} onChange={(event) => setValues({ ...values, [key]: event.target.value })} /> }<small>{setting?.configured ? setting.secret ? "Configured · leave blank to preserve" : "Configured" : "Not configured"}</small></label>;
+                const input = key === "LLM_PROVIDER"
+                  ? <select value={values[key] ?? "ollama"} onChange={(event) => setValues({ ...values, [key]: event.target.value })}><option value="ollama">Ollama (local)</option><option value="openai">OpenAI</option><option value="google">Google Gemini</option><option value="anthropic">Anthropic Claude</option></select>
+                  : setting?.secret
+                    ? <input type="password" value={values[key] ?? ""} placeholder={setting.masked || "Not configured"} onChange={(event) => setValues({ ...values, [key]: event.target.value })} />
+                    : <input value={values[key] ?? ""} onChange={(event) => setValues({ ...values, [key]: event.target.value })} />;
+                return <label key={key}>{CONFIG_LABELS[key]}{input}<small>{setting?.configured ? setting.secret ? "Configured · leave blank to preserve" : "Configured" : "Not configured"}</small></label>;
               })}
             </div></fieldset>
           ))}

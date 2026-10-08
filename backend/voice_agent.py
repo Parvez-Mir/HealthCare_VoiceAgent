@@ -25,7 +25,15 @@ from livekit.agents.voice.turn import (
     PreemptiveGenerationOptions,
     TurnHandlingOptions,
 )
-from livekit.plugins import assemblyai, cartesia, noise_cancellation, openai, silero
+from livekit.plugins import (
+    anthropic,
+    assemblyai,
+    cartesia,
+    google,
+    noise_cancellation,
+    openai,
+    silero,
+)
 
 
 ENV_PATH = Path(__file__).with_name(".env")
@@ -58,6 +66,52 @@ def load_runtime_config() -> dict[str, str]:
         if value is not None
     }
     return {key: str(value) for key, value in values.items()}
+
+
+def create_llm(config: dict[str, str]):
+    provider = (config.get("LLM_PROVIDER") or "ollama").strip().lower()
+    model = config.get("LLM_MODEL") or config.get("OLLAMA_MODEL") or "qwen2.5:7b"
+    api_key = config.get("LLM_API_KEY", "")
+    if provider == "ollama":
+        return openai.LLM(
+            model=model,
+            api_key=api_key or "ollama",
+            base_url=config.get("LLM_BASE_URL") or config.get("OLLAMA_BASE_URL")
+            or "http://127.0.0.1:11434/v1",
+            temperature=0.1,
+            max_completion_tokens=256,
+        )
+    if provider == "openai":
+        if not api_key:
+            raise RuntimeError("LLM_API_KEY is required for the OpenAI provider")
+        return openai.LLM(
+            model=model,
+            api_key=api_key,
+            base_url=config.get("LLM_BASE_URL") or "https://api.openai.com/v1",
+            temperature=0.1,
+            max_completion_tokens=256,
+        )
+    if provider == "google":
+        if not api_key:
+            raise RuntimeError("LLM_API_KEY is required for the Google provider")
+        return google.LLM(
+            model=model,
+            api_key=api_key,
+            temperature=0.1,
+            max_output_tokens=256,
+        )
+    if provider == "anthropic":
+        if not api_key:
+            raise RuntimeError("LLM_API_KEY is required for the Anthropic provider")
+        return anthropic.LLM(
+            model=model,
+            api_key=api_key,
+            temperature=0.1,
+            max_tokens=256,
+        )
+    raise RuntimeError(
+        "Unsupported LLM_PROVIDER. Choose ollama, openai, google, or anthropic."
+    )
 
 
 def load_agent_prompt(
@@ -224,19 +278,25 @@ async def entrypoint(ctx: JobContext) -> None:
     cartesia_api_key = runtime_config.get("CARTESIA_API_KEY")
     if not cartesia_api_key:
         raise RuntimeError("CARTESIA_API_KEY is required to start the voice agent")
-    ollama_model = runtime_config.get("OLLAMA_MODEL") or "qwen2.5:7b"
-    ollama_base_url = runtime_config.get("OLLAMA_BASE_URL") or "http://127.0.0.1:11434/v1"
+    llm_provider = runtime_config.get("LLM_PROVIDER") or "ollama"
+    llm_model = runtime_config.get("LLM_MODEL") or runtime_config.get("OLLAMA_MODEL") or "qwen2.5:7b"
+    llm_base_url = runtime_config.get("LLM_BASE_URL") or runtime_config.get("OLLAMA_BASE_URL") or ""
     cartesia_voice_id = runtime_config.get("CARTESIA_VOICE_ID") or DEFAULT_CARTESIA_VOICE_ID
     agent_prompt_id = load_agent_prompt(config=runtime_config)[0]
     logger.info(
-        "Using call configuration: prompt=%s model=%s voice=%s",
+        "Using call configuration: provider=%s prompt=%s model=%s voice=%s",
+        llm_provider,
         agent_prompt_id,
-        ollama_model,
+        llm_model,
         cartesia_voice_id,
     )
     config_snapshot = {
-        "ollama_model": ollama_model,
-        "ollama_base_url": ollama_base_url,
+        "llm_provider": llm_provider,
+        "llm_model": llm_model,
+        "llm_base_url": llm_base_url,
+        "llm_api_key_configured": bool(runtime_config.get("LLM_API_KEY")),
+        "ollama_model": llm_model,
+        "ollama_base_url": llm_base_url,
         "cartesia_voice_id": cartesia_voice_id,
         "agent_prompt_id": agent_prompt_id,
         "backend_url": backend_url,
@@ -258,13 +318,7 @@ async def entrypoint(ctx: JobContext) -> None:
             model="universal-3-6-pro",
             mode="min_latency",
         ),
-        llm=openai.LLM(
-            model=ollama_model,
-            api_key="ollama",
-            base_url=ollama_base_url,
-            temperature=0.1,
-            max_completion_tokens=256,
-        ),
+        llm=create_llm(runtime_config),
         tts=cartesia.TTS(
             api_key=cartesia_api_key,
             model="sonic-3",
