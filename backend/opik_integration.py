@@ -15,6 +15,52 @@ load_dotenv(Path(__file__).with_name(".env"))
 logger = logging.getLogger("healthcare-voice-agent")
 
 
+def setup_live_tracing(ctx: Any, patient_id: str) -> None:
+    """Export LiveKit's built-in OpenTelemetry spans (STT/LLM/TTS timings) to
+    Opik live. No-op without Opik credentials; never raises."""
+    import os
+
+    api_key = os.getenv("OPIK_API_KEY")
+    if not api_key:
+        return
+    try:
+        from livekit.agents.telemetry import set_tracer_provider
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter,
+        )
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+        base = os.getenv("OPIK_URL_OVERRIDE", "https://www.comet.com/opik/api")
+        exporter = OTLPSpanExporter(
+            timeout=30,
+            endpoint=f"{base.rstrip('/')}/v1/private/otel/v1/traces",
+            headers={
+                "Authorization": api_key,
+                "Comet-Workspace": os.getenv("OPIK_WORKSPACE", "default"),
+                "projectName": os.getenv(
+                    "OPIK_PROJECT_NAME", "healthcare-voice-agent"
+                ),
+            },
+        )
+        provider = TracerProvider()
+        provider.add_span_processor(BatchSpanProcessor(exporter))
+        set_tracer_provider(
+            provider,
+            metadata={
+                "livekit.session.id": ctx.room.name,
+                "patient_id": patient_id,
+            },
+        )
+
+        async def flush() -> None:
+            provider.force_flush()
+
+        ctx.add_shutdown_callback(flush)
+    except Exception:
+        logger.exception("Could not set up live Opik tracing; continuing without it")
+
+
 def _parse_time(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value else None
 
@@ -47,7 +93,6 @@ def send_call_to_opik(call_dir: Path) -> str | None:
                 "recording_path": call.get("recording_path"),
                 "tool_calls": call["tool_calls"],
                 "analysis": analysis,
-                "latency": call.get("latency", {}),
                 **variables,
             },
             tags=["outbound-call"],

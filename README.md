@@ -6,8 +6,8 @@ integration. Backend-specific code and dependencies live in
 
 ## Initial setup
 
-The project uses Python, FastAPI for the booking backend, and LiveKit Agents with
-Gemini and Silero plugins for the voice agent.
+The project uses Python, FastAPI for the booking backend, and LiveKit Agents for
+the voice agent (AssemblyAI STT, a local Ollama LLM, Cartesia TTS, Silero VAD).
 
 ```bash
 cd backend
@@ -21,15 +21,15 @@ cp .env.example .env
 Install Ollama and pull the local model before running the voice agent:
 
 ```bash
-ollama pull qwen2.5:7b
+ollama pull hf.co/LiquidAI/LFM2.5-1.2B-Instruct-GGUF:Q8_0
 ```
 
 Fill in `OLLAMA_MODEL`, `OLLAMA_BASE_URL`, `ASSEMBLYAI_API_KEY`,
 `CARTESIA_API_KEY`, `PATIENT_ID`, and the LiveKit credentials in `backend/.env`
 before running the voice agent. The LLM now runs locally through Ollama; STT
-and TTS still use AssemblyAI and Cartesia.
-check Google's current pricing and rate limits before production use. Do not
-commit `.env`.
+and TTS still use AssemblyAI and Cartesia. The agent speaks with the Cartesia
+"Fiona" voice; set `CARTESIA_VOICE_ID` to use a different one. Do not commit
+`.env`.
 
 ## Booking backend
 
@@ -116,7 +116,6 @@ Each call (console or outbound) is saved to its own git-ignored folder,
 - `call.json`: call metadata and variables (patient, phone number, biomarkers,
   start/end time), the live transcript, every tool call with its arguments and
   result, and the recording path.
-
 - `analysis.json`: the post-call analysis (see below).
 
 The transcript is captured during the call from the agent's own speech-to-text
@@ -185,3 +184,15 @@ call with:
 cd backend
 .venv/bin/python opik_integration.py calls/<room-name>
 ```
+
+### Live latency spans
+
+The agent also exports LiveKit's built-in OpenTelemetry spans to the same Opik
+project while the call runs (`setup_live_tracing` in `opik_integration.py`).
+They show per-step timings for the session, STT, LLM, and TTS, and are tagged
+with the room name and patient ID so they can be matched to the post-call trace.
+They are a separate trace from the post-call one. Export failures are logged and
+never affect a call. Latency is not duplicated in `call.json`.
+
+If a call is silent and the worker logs `no audio frames were pushed` or HTTP
+402 from Cartesia, check your Cartesia credits and plan limits.

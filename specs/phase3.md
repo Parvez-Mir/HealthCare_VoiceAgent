@@ -114,8 +114,17 @@ scores each completed call automatically.
   the analysis with a three-line hook in `post_call_analysis.py`. Verified by
   reading traces back from Opik for a real and a simulated call.
 
+- Added live OpenTelemetry export of LiveKit's spans (STT, LLM, TTS timings) to
+  Opik via `setup_live_tracing`; verified spans arriving in the Opik project.
+  Latency is read from these spans rather than stored in `call.json`.
+- Switched the LLM to LFM2.5-1.2B-Instruct (Ollama) and the TTS voice to
+  Cartesia "Fiona". Vobiz-side recordings are not used; the local recording
+  is the source of truth.
+
 ### Next
 
-- Confirm the evaluation rule (open item above).
+- Configure the online evaluation rule in the Opik dashboard and confirm its
+  score appears on a trace.
 - Check a live accepted and a live declined call against `analysis.json`.
-- Configure the online evaluation rule in the Opik dashboard.
+- Check that an invalid Opik key does not interrupt a call.
+- Run the demo walkthrough and tick the checklist above.

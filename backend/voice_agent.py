@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 from call_capture import CallCapture
+from opik_integration import setup_live_tracing
 from livekit import api
 from livekit.agents import (
     Agent,
@@ -29,6 +30,8 @@ from livekit.plugins import assemblyai, cartesia, noise_cancellation, openai, si
 
 load_dotenv(Path(__file__).with_name(".env"))
 logger = logging.getLogger("healthcare-voice-agent")
+# Cartesia "Fiona - Witty Woman"
+DEFAULT_CARTESIA_VOICE_ID = "a01c369f-6d2d-4185-bc20-b32c225eab70"
 PATIENTS_PATH = Path(__file__).with_name("patients.json")
 DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
 AGENT_NAME = "healthcare-agent"
@@ -144,6 +147,7 @@ async def entrypoint(ctx: JobContext) -> None:
         "PATIENT_ID", "patient-001"
     )
     patient = load_patient(patient_id)
+    setup_live_tracing(ctx, patient_id)
     backend_url = os.getenv("BACKEND_URL", DEFAULT_BACKEND_URL)
     assemblyai_api_key = os.getenv("ASSEMBLYAI_API_KEY")
     if not assemblyai_api_key:
@@ -178,6 +182,7 @@ async def entrypoint(ctx: JobContext) -> None:
         tts=cartesia.TTS(
             api_key=cartesia_api_key,
             model="sonic-3",
+            voice=os.getenv("CARTESIA_VOICE_ID", DEFAULT_CARTESIA_VOICE_ID),
         ),
         vad=silero.VAD.load(),
         turn_handling=TurnHandlingOptions(
