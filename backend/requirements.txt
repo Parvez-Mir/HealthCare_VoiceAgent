@@ -8,3 +8,4 @@ livekit-plugins-cartesia
 livekit-plugins-noise-cancellation
 livekit-plugins-openai
 livekit-plugins-silero
+opik

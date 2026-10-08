@@ -123,6 +123,9 @@ async def analyze_call_dir(call_dir: Path) -> dict[str, Any] | None:
             analysis["appointment_booked"],
             analysis["outcome"],
         )
+        from opik_integration import send_call_to_opik
+
+        send_call_to_opik(call_dir)
         return analysis
     except Exception:
         logger.exception("Could not complete post-call analysis for %s", call_dir)

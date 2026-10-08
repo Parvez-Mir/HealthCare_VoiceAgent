@@ -159,3 +159,29 @@ Re-run it for any saved call:
 cd backend
 .venv/bin/python post_call_analysis.py calls/<room-name>
 ```
+
+## Opik tracing
+
+All Opik code is in [`opik_integration.py`](./backend/opik_integration.py). After
+the post-call analysis finishes, the same background process sends **one trace
+per call** to your Opik project containing:
+
+- call metadata and variables (patient, phone number, biomarkers, room, times)
+- the transcript
+- the recording path (`recording_path`, a local file)
+- tool calls and results (also logged as `tool` spans)
+- the post-call analysis (trace output)
+
+It also logs two feedback scores on the trace: `appointment_booked` and
+`booking_claim_matches_tool_result` (both 1.0 or 0.0). Opik errors are caught and
+logged and never affect a call.
+
+Setup: create an Opik account, then set `OPIK_API_KEY`, `OPIK_WORKSPACE` (the
+name in your Opik URL, `comet.com/opik/<workspace>`), and `OPIK_PROJECT_NAME` in
+`backend/.env`. The project is created on the first trace. Re-send any saved
+call with:
+
+```bash
+cd backend
+.venv/bin/python opik_integration.py calls/<room-name>
+```

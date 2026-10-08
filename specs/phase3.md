@@ -108,8 +108,14 @@ scores each completed call automatically.
   booked, declined, undecided, interested, false-claim, and no-answer calls and
   on a real call; the booked path still needs a live call.
 
+- Added `backend/opik_integration.py`. It sends one trace per call (variables,
+  transcript, recording path, tool calls as spans, analysis) plus the scores
+  `appointment_booked` and `booking_claim_matches_tool_result`. It runs after
+  the analysis with a three-line hook in `post_call_analysis.py`. Verified by
+  reading traces back from Opik for a real and a simulated call.
+
 ### Next
 
 - Confirm the evaluation rule (open item above).
 - Check a live accepted and a live declined call against `analysis.json`.
-- Build `opik_integration.py` and the online evaluation.
+- Configure the online evaluation rule in the Opik dashboard.

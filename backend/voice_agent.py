@@ -172,7 +172,7 @@ async def entrypoint(ctx: JobContext) -> None:
             model=ollama_model,
             api_key="ollama",
             base_url=ollama_base_url,
-            temperature=0.2,
+            temperature=0.1,
             max_completion_tokens=256,
         ),
         tts=cartesia.TTS(
