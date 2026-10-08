@@ -143,8 +143,8 @@ Python).
 
 ## Call data
 
-Each call (console or outbound) is saved to its own git-ignored folder,
-`backend/calls/<room-name>/`:
+Each call (console or outbound) is saved to its own git-ignored folder under
+`backend/calls/<date>/<patient-id>/<room-name>/` (the date is UTC):
 
 - `audio.ogg`: stereo Opus recording, caller on the left channel and agent on
   the right.
@@ -195,7 +195,7 @@ Re-run it for any saved call:
 
 ```bash
 cd backend
-.venv/bin/python post_call_analysis.py calls/<room-name>
+.venv/bin/python post_call_analysis.py calls/<date>/<patient-id>/<room-name>
 ```
 
 ## Opik tracing
@@ -242,7 +242,7 @@ call with:
 
 ```bash
 cd backend
-.venv/bin/python opik_integration.py calls/<room-name>
+.venv/bin/python opik_integration.py calls/<date>/<patient-id>/<room-name>
 ```
 
 ### Live latency spans
