@@ -236,6 +236,26 @@ Opik receives call traces, tool activity, analysis results, and application
 scores for booking correctness and PII handling. Configure it through the
 `OPIK_*` values in `backend/.env`.
 
+### Opik online evaluations
+
+Completed call traces are evaluated with two online evaluators:
+
+- **`online_booking_claim_check`** — a code metric that compares the agent's
+  booking statement with the booking tool result. It returns `1.0` when
+  `claim_matches_tool_result` is true and `0.0` when the agent's claim
+  contradicts the booking outcome. Calls without a valid comparison are marked
+  as failed evaluations.
+- **`phi_handling`** — an LLM-as-judge evaluation that checks whether the
+  caller's identity was verified before any patient-specific information was
+  disclosed and whether the assistant disclosed only the information necessary
+  for the appointment conversation. It returns a binary true/false decision
+  with a concise explanation.
+
+The booking evaluator uses the post-call analysis and appointment outcome. The
+PHI evaluator uses the captured conversation as input and evaluates identity
+verification order, biomarker disclosure, and unnecessary disclosure of
+personal or health information.
+
 ## Development limitations
 
 - Authentication is hard-coded for development.
