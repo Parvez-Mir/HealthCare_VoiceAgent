@@ -6,15 +6,35 @@ appointment. It includes an operations dashboard for Admin and Developer users.
 
 The voice stack uses LiveKit Agents with AssemblyAI STT, Cartesia TTS, Silero VAD, and selectable native LiveKit LLM providers: Ollama, OpenAI, Google Gemini, and Anthropic Claude.
 
+### Usage and cost estimates
+
+Each new call saves LiveKit-reported LLM token, STT audio-duration, and TTS
+character usage in `call.json`. `analysis.json` and Opik include per-stage
+estimated costs when rates are configured:
+
+- `COST_LLM_INPUT_USD_PER_MILLION_TOKENS`
+- `COST_LLM_OUTPUT_USD_PER_MILLION_TOKENS`
+- `COST_STT_USD_PER_AUDIO_MINUTE`
+- `COST_TTS_USD_PER_1000_CHARACTERS`
+
+These are estimates using the configured rates, not provider invoices. Blank
+rates leave costs unpriced rather than reporting an assumed zero. Local Ollama
+inference has no provider token charge in this estimate; hardware costs and
+LiveKit/SIP telephony charges are not included. The total is only reported when
+LLM, STT, and TTS usage are all present and priced; individual priced stages
+remain available when the overall estimate is incomplete. Configure rates for
+the active provider/model, and update them when changing providers or plans.
+
 ## Repository structure
 
 ```text
 backend/
-  app.py                  FastAPI API, authentication, dashboard endpoints
-  voice_agent.py          LiveKit voice worker and conversation tools
+  app.py                  FastAPI application composition and dashboard routes
+  routes/                 HTTP route groups
+  services/               JSON persistence and shared runtime state
+  utils/                  Shared input validation
+  workers/                LiveKit voice and post-call workers
   make_call.py            Manual outbound call command
-  call_capture.py         Call transcript and audio capture
-  post_call_analysis.py   Post-call outcome analysis
   opik_integration.py     Opik traces and evaluation scores
   patients.json           Dummy patient records
   slots.json              Dummy appointment slots
@@ -106,7 +126,7 @@ curl http://127.0.0.1:8000/health
 
 ```bash
 cd backend
-.venv/bin/python voice_agent.py dev
+.venv/bin/python -m workers.voice_agent dev
 ```
 
 Keep this terminal running. It receives LiveKit jobs and starts the

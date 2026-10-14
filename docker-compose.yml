@@ -22,7 +22,7 @@ services:
       dockerfile: Dockerfile
     env_file:
       - ./backend/.env
-    command: python voice_agent.py dev
+    command: python -m workers.voice_agent dev
     depends_on:
       api:
         condition: service_healthy

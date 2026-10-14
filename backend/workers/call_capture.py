@@ -14,8 +14,10 @@ from livekit.agents.voice.events import (
 )
 from livekit.agents.voice.recorder_io import RecorderIO
 
+from workers.latency_metrics import extract_latency_metrics
+
 logger = logging.getLogger("healthcare-voice-agent")
-CALLS_DIR = Path(__file__).with_name("calls")
+CALLS_DIR = Path(__file__).parents[1] / "calls"
 
 
 def _path_component(value: object, fallback: str) -> str:
@@ -72,14 +74,22 @@ class CallCapture:
             return
         text = item.text_content
         if text:
-            self._transcript.append(
-                {
-                    "role": "patient" if item.role == "user" else "agent",
-                    "text": text,
-                    "interrupted": item.interrupted,
-                    "at": _iso(event.created_at),
-                }
-            )
+            entry = {
+                "role": "patient" if item.role == "user" else "agent",
+                "text": text,
+                "interrupted": item.interrupted,
+                "at": _iso(event.created_at),
+            }
+            metrics = extract_latency_metrics(item.metrics)
+            if metrics:
+                entry["metrics"] = metrics
+            if isinstance(item.metrics, dict):
+                speech_started_at = item.metrics.get("started_speaking_at")
+                if isinstance(speech_started_at, (int, float)) and not isinstance(
+                    speech_started_at, bool
+                ):
+                    entry["speech_started_at"] = _iso(speech_started_at)
+            self._transcript.append(entry)
 
     def _on_tools(self, event: FunctionToolsExecutedEvent) -> None:
         for call, output in zip(event.function_calls, event.function_call_outputs):
@@ -128,6 +138,10 @@ class CallCapture:
                         "recording_path": recording,
                         "transcript": self._transcript,
                         "tool_calls": self._tool_calls,
+                        "usage": [
+                            item.model_dump(mode="json")
+                            for item in self._session.usage.model_usage
+                        ],
                     },
                     indent=2,
                 ),
@@ -147,7 +161,8 @@ class CallCapture:
                 subprocess.Popen(
                     [
                         sys.executable,
-                        str(Path(__file__).with_name("post_call_analysis.py")),
+                        "-m",
+                        "workers.post_call_analysis",
                         str(self._call_dir),
                     ],
                     stdout=log,
