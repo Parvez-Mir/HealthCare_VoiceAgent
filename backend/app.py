@@ -184,7 +184,7 @@ def dashboard_summary(_: dict[str, str] = Depends(require_dashboard_session)) ->
         "patient_count": len(patients),
         "open_slot_count": open_slot_count,
         "prompt_count": len(prompts),
-        "active_prompt_id": os.getenv("AGENT_PROMPT_ID", "flora-healthcare-agent-v1"),
+        "active_prompt_id": os.getenv("AGENT_PROMPT_ID", "careline-healthcare-agent-v1"),
     }
 
 
@@ -253,7 +253,7 @@ def test_developer_config(_: dict[str, str] = Depends(require_dashboard_session)
 def list_developer_prompts(_: dict[str, str] = Depends(require_dashboard_session)) -> dict[str, object]:
     with PROMPTS_LOCK:
         prompts = load_prompts()
-    active_prompt_id = read_env_values().get("AGENT_PROMPT_ID", "flora-healthcare-agent-v1")
+    active_prompt_id = read_env_values().get("AGENT_PROMPT_ID", "careline-healthcare-agent-v1")
     return {"prompts": [{**prompt, "active": prompt["id"] == active_prompt_id} for prompt in prompts]}
 
 
@@ -302,7 +302,7 @@ def delete_developer_prompt(
         prompts = load_prompts()
         if len(prompts) <= 1:
             raise HTTPException(status_code=409, detail="At least one prompt must remain")
-        if read_env_values().get("AGENT_PROMPT_ID", "flora-healthcare-agent-v1") == prompt_id:
+        if read_env_values().get("AGENT_PROMPT_ID", "careline-healthcare-agent-v1") == prompt_id:
             raise HTTPException(status_code=409, detail="Select another active prompt before deleting this one")
         remaining = [prompt for prompt in prompts if prompt["id"] != prompt_id]
         if len(remaining) == len(prompts):

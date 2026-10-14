@@ -39,7 +39,6 @@ from livekit.plugins import (
 ENV_PATH = Path(__file__).with_name(".env")
 load_dotenv(ENV_PATH, override=True)
 logger = logging.getLogger("healthcare-voice-agent")
-# Cartesia "Fiona - Witty Woman"
 DEFAULT_CARTESIA_VOICE_ID = "a01c369f-6d2d-4185-bc20-b32c225eab70"
 PATIENTS_PATH = Path(__file__).with_name("patients.json")
 AGENT_PROMPTS_PATH = Path(__file__).with_name("agent_prompts.json")
@@ -268,7 +267,7 @@ async def entrypoint(ctx: JobContext) -> None:
     runtime_config = load_runtime_config()
     call_request = read_call_request(ctx)
     phone_number = call_request.get("phone_number")
-    patient_id = call_request.get("patient_id") or runtime_config.get("PATIENT_ID") or "patient-001"
+    patient_id = call_request.get("patient_id") or runtime_config.get("PATIENT_ID")
     patient = load_patient(patient_id)
     setup_live_tracing(ctx, patient_id)
     backend_url = runtime_config.get("BACKEND_URL") or DEFAULT_BACKEND_URL

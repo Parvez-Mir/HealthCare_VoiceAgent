@@ -1,20 +1,20 @@
 [
   {
-    "id": "slot-001",
+    "id": "SLOT01",
     "provider": "Dr. Priya Shah",
     "starts_at": "2026-10-12T09:00:00+05:30",
     "duration_minutes": 30
   },
   {
-    "id": "slot-002",
+    "id": "SLOT02",
     "provider": "Dr. Daniel Lee",
     "starts_at": "2026-10-12T11:30:00+05:30",
     "duration_minutes": 30
   },
   {
-    "id": "slot-003",
-    "provider": "Dr. Priya Shah",
-    "starts_at": "2026-10-13T15:00:00+05:30",
+    "id": "SLOT03",
+    "provider": "Dr. David",
+    "starts_at": "2026-10-15T15:00:00+05:30",
     "duration_minutes": 30
   }
 ]
