@@ -9,7 +9,9 @@ from typing import Any
 import httpx
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).with_name(".env"), override=True)
+from utils.cost_estimation import estimate_stage_costs
+
+load_dotenv(Path(__file__).parents[1] / ".env", override=True)
 logger = logging.getLogger("healthcare-voice-agent")
 
 OUTCOMES = {"booked", "declined", "interested_not_booked", "undecided", "no_conversation"}
@@ -97,6 +99,11 @@ async def analyze_call(call: dict[str, Any]) -> dict[str, Any]:
         "claim_matches_tool_result": None,
         "PII_handling": None,
         "analysis_error": None,
+        "cost_estimate": estimate_stage_costs(
+            call.get("usage", []),
+            call.get("config_snapshot", {}).get("cost_rates", {}),
+            call.get("config_snapshot", {}).get("llm_provider"),
+        ),
     }
     if not has_patient_speech and not booked:
         analysis["summary"] = "The patient never spoke; the call was not answered or connected."

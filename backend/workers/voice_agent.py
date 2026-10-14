@@ -6,8 +6,9 @@ from typing import Any
 
 import httpx
 from dotenv import dotenv_values, load_dotenv
-from call_capture import CallCapture
+from workers.call_capture import CallCapture
 from opik_integration import setup_live_tracing
+from utils.cost_estimation import RATE_KEYS
 from livekit import api
 from livekit.agents import (
     Agent,
@@ -36,13 +37,13 @@ from livekit.plugins import (
 )
 
 
-ENV_PATH = Path(__file__).with_name(".env")
+BACKEND_DIR = Path(__file__).parents[1]
+ENV_PATH = BACKEND_DIR / ".env"
 load_dotenv(ENV_PATH, override=True)
 logger = logging.getLogger("healthcare-voice-agent")
-# Cartesia "Fiona - Witty Woman"
 DEFAULT_CARTESIA_VOICE_ID = "a01c369f-6d2d-4185-bc20-b32c225eab70"
-PATIENTS_PATH = Path(__file__).with_name("patients.json")
-AGENT_PROMPTS_PATH = Path(__file__).with_name("agent_prompts.json")
+PATIENTS_PATH = BACKEND_DIR / "patients.json"
+AGENT_PROMPTS_PATH = BACKEND_DIR / "agent_prompts.json"
 DEFAULT_AGENT_PROMPT_ID = "just_testing_prompt"
 DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
 AGENT_NAME = "healthcare-agent"
@@ -158,29 +159,23 @@ class HealthcareAgent(Agent):
         super().__init__(instructions=patient_instructions(patient, prompt_id, config))
         self._backend_url = backend_url.rstrip("/")
         self._patient_id = patient["id"]
-        self._patient_name = patient["name"]
         self._identity_verified = False
 
     @function_tool(
         description=(
-            "Verify the caller's patient ID and full patient name against the "
-            "clinic record before any patient information or booking tools are used."
+            "Verify the caller's patient ID against the clinic record before "
+            "any patient information or booking tools are used."
         )
     )
-    async def verify_patient_identity(
-        self, patient_id: str, patient_name: str
-    ) -> str:
-        verified = (
-            patient_id.strip() == self._patient_id
-            and patient_name.strip().casefold() == self._patient_name.casefold()
-        )
-        if verified:
+    async def verify_patient_identity(self, patient_id: str) -> str:
+        normalized = "".join(patient_id.split()).casefold()
+        if normalized == self._patient_id.casefold():
             self._identity_verified = True
             return json.dumps({"verified": True})
         return json.dumps(
             {
                 "verified": False,
-                "message": "Patient ID and patient name could not be verified.",
+                "message": "Patient ID could not be verified.",
             }
         )
 
@@ -268,7 +263,7 @@ async def entrypoint(ctx: JobContext) -> None:
     runtime_config = load_runtime_config()
     call_request = read_call_request(ctx)
     phone_number = call_request.get("phone_number")
-    patient_id = call_request.get("patient_id") or runtime_config.get("PATIENT_ID") or "patient-001"
+    patient_id = call_request.get("patient_id") or runtime_config.get("PATIENT_ID")
     patient = load_patient(patient_id)
     setup_live_tracing(ctx, patient_id)
     backend_url = runtime_config.get("BACKEND_URL") or DEFAULT_BACKEND_URL
@@ -302,6 +297,7 @@ async def entrypoint(ctx: JobContext) -> None:
         "backend_url": backend_url,
         "assemblyai_configured": bool(assemblyai_api_key),
         "cartesia_configured": bool(cartesia_api_key),
+        "cost_rates": {key: runtime_config.get(key, "") for key in RATE_KEYS},
     }
 
     await ctx.connect()

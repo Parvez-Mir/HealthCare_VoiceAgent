@@ -1,33 +1,33 @@
 import json
+import math
 import os
 import re
 import secrets
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from uuid import uuid4
-from urllib.parse import urlparse
 
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-
-class AppointmentRequest(BaseModel):
-    patient_id: str = Field(min_length=1)
-    slot_id: str = Field(min_length=1)
-
-
-class AppointmentResponse(BaseModel):
-    confirmation_id: str
-    patient_id: str
-    slot_id: str
-    provider: str
-    starts_at: str
-    duration_minutes: int
-    status: str
-
+from routes.public import router as public_router
+from services.file_store import load_json, read_env_file, save_json, update_env_file
+from services.runtime_state import (
+    BOOKED_SLOTS,
+    BOOKING_LOCK,
+    PATIENTS_LOCK,
+    PATIENTS_PATH,
+    SLOTS_LOCK,
+    SLOTS_PATH,
+    load_patients,
+    load_slots,
+    save_patients,
+    save_slots,
+)
+from utils.validation import normalize_phone, validate_url
+from utils.cost_estimation import RATE_KEYS
 
 class LoginRequest(BaseModel):
     email: str = Field(min_length=1)
@@ -77,11 +77,9 @@ class PromptPreviewRequest(BaseModel):
     template: str = Field(min_length=1, max_length=12000)
 
 
-PATIENTS_PATH = Path(__file__).with_name("patients.json")
 with PATIENTS_PATH.open(encoding="utf-8") as patients_file:
     PATIENTS = json.load(patients_file)
 
-SLOTS_PATH = Path(__file__).with_name("slots.json")
 with SLOTS_PATH.open(encoding="utf-8") as slots_file:
     SLOTS = json.load(slots_file)
 
@@ -89,12 +87,8 @@ ENV_PATH = Path(__file__).with_name(".env")
 ENV_EXAMPLE_PATH = Path(__file__).with_name(".env.example")
 PROMPTS_PATH = Path(__file__).with_name("agent_prompts.json")
 SLOT_IDS = {slot["id"] for slot in SLOTS}
-BOOKED_SLOTS: set[str] = set()
-BOOKING_LOCK = Lock()
 SESSION_TOKENS: set[str] = set()
 SESSION_LOCK = Lock()
-PATIENTS_LOCK = Lock()
-SLOTS_LOCK = Lock()
 ENV_LOCK = Lock()
 PROMPTS_LOCK = Lock()
 DEVELOPMENT_EMAIL = "admin@careline.dev"
@@ -128,6 +122,7 @@ CONFIG_KEYS = [
     "OPIK_API_KEY",
     "OPIK_WORKSPACE",
     "OPIK_PROJECT_NAME",
+    *RATE_KEYS,
 ]
 SUPPORTED_PROMPT_VARIABLES = {"patient_id", "patient_name", "glucose_mg_dl", "hba1c_percent"}
 SUPPORTED_LLM_PROVIDERS = {"ollama", "openai", "google", "anthropic"}
@@ -140,6 +135,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(public_router)
 
 
 def require_dashboard_session(
@@ -184,7 +180,7 @@ def dashboard_summary(_: dict[str, str] = Depends(require_dashboard_session)) ->
         "patient_count": len(patients),
         "open_slot_count": open_slot_count,
         "prompt_count": len(prompts),
-        "active_prompt_id": os.getenv("AGENT_PROMPT_ID", "flora-healthcare-agent-v1"),
+        "active_prompt_id": os.getenv("AGENT_PROMPT_ID", "careline-healthcare-agent-v1"),
     }
 
 
@@ -209,9 +205,14 @@ def update_developer_config(
                 detail="LLM_PROVIDER must be ollama, openai, google, or anthropic",
             )
         if key.endswith("_URL") and value:
-            parsed = urlparse(value)
-            if parsed.scheme not in {"http", "https", "ws", "wss"} or not parsed.netloc:
-                raise HTTPException(status_code=422, detail=f"{key} must be a valid URL")
+            validate_url(value, key)
+        if key in RATE_KEYS and value:
+            try:
+                rate = float(value)
+            except ValueError as error:
+                raise HTTPException(status_code=422, detail=f"{key} must be a non-negative number") from error
+            if not math.isfinite(rate) or rate < 0:
+                raise HTTPException(status_code=422, detail=f"{key} must be a non-negative number")
         if key == "AGENT_PROMPT_ID" and value:
             with PROMPTS_LOCK:
                 if not any(prompt["id"] == value for prompt in load_prompts()):
@@ -253,7 +254,7 @@ def test_developer_config(_: dict[str, str] = Depends(require_dashboard_session)
 def list_developer_prompts(_: dict[str, str] = Depends(require_dashboard_session)) -> dict[str, object]:
     with PROMPTS_LOCK:
         prompts = load_prompts()
-    active_prompt_id = read_env_values().get("AGENT_PROMPT_ID", "flora-healthcare-agent-v1")
+    active_prompt_id = read_env_values().get("AGENT_PROMPT_ID", "careline-healthcare-agent-v1")
     return {"prompts": [{**prompt, "active": prompt["id"] == active_prompt_id} for prompt in prompts]}
 
 
@@ -302,7 +303,7 @@ def delete_developer_prompt(
         prompts = load_prompts()
         if len(prompts) <= 1:
             raise HTTPException(status_code=409, detail="At least one prompt must remain")
-        if read_env_values().get("AGENT_PROMPT_ID", "flora-healthcare-agent-v1") == prompt_id:
+        if read_env_values().get("AGENT_PROMPT_ID", "careline-healthcare-agent-v1") == prompt_id:
             raise HTTPException(status_code=409, detail="Select another active prompt before deleting this one")
         remaining = [prompt for prompt in prompts if prompt["id"] != prompt_id]
         if len(remaining) == len(prompts):
@@ -329,63 +330,27 @@ def preview_developer_prompt(
 
 
 def load_patients() -> list[dict]:
-    with PATIENTS_PATH.open(encoding="utf-8") as patients_file:
-        return json.load(patients_file)
+    return load_json(PATIENTS_PATH)
 
 
 def save_patients(patients: list[dict]) -> None:
-    temporary_path = PATIENTS_PATH.with_suffix(".json.tmp")
-    with temporary_path.open("w", encoding="utf-8") as patients_file:
-        json.dump(patients, patients_file, indent=2)
-        patients_file.write("\n")
-    os.replace(temporary_path, PATIENTS_PATH)
+    save_json(PATIENTS_PATH, patients)
 
 
 def load_slots() -> list[dict]:
-    with SLOTS_PATH.open(encoding="utf-8") as slots_file:
-        return json.load(slots_file)
+    return load_json(SLOTS_PATH)
 
 
 def save_slots(slots: list[dict]) -> None:
-    temporary_path = SLOTS_PATH.with_suffix(".json.tmp")
-    with temporary_path.open("w", encoding="utf-8") as slots_file:
-        json.dump(slots, slots_file, indent=2)
-        slots_file.write("\n")
-    os.replace(temporary_path, SLOTS_PATH)
+    save_json(SLOTS_PATH, slots)
 
 
 def read_env_values() -> dict[str, str]:
-    if not ENV_PATH.exists():
-        return {}
-    values: dict[str, str] = {}
-    for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        values[key] = value
-    return values
+    return read_env_file(ENV_PATH)
 
 
 def save_env_values(updates: dict[str, str]) -> None:
-    existing_lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
-    seen: set[str] = set()
-    output: list[str] = []
-    for line in existing_lines:
-        stripped = line.strip()
-        if stripped and not stripped.startswith("#") and "=" in stripped:
-            key = stripped.split("=", 1)[0]
-            if key in updates:
-                output.append(f"{key}={updates[key]}")
-                seen.add(key)
-                continue
-        output.append(line)
-    for key, value in updates.items():
-        if key not in seen:
-            output.append(f"{key}={value}")
-    temporary_path = ENV_PATH.with_suffix(".env.tmp")
-    temporary_path.write_text("\n".join(output) + "\n", encoding="utf-8")
-    os.replace(temporary_path, ENV_PATH)
+    update_env_file(ENV_PATH, updates)
 
 
 def mask_secret(value: str) -> str:
@@ -430,10 +395,7 @@ def validate_prompt_template(template: str) -> None:
 
 
 def validate_phone(phone: str) -> str:
-    normalized = phone.replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
-    if not re.fullmatch(r"\+[1-9]\d{6,14}", normalized):
-        raise HTTPException(status_code=422, detail="Phone must use international format, for example +919876543210")
-    return normalized
+    return normalize_phone(phone)
 
 
 @app.get("/patients", response_model=list[dict])
@@ -587,42 +549,3 @@ async def dispatch_patient_call(
     except (OSError, ValueError) as error:
         raise HTTPException(status_code=502, detail="Outbound call dispatch failed") from error
     return {"patient_id": patient["id"], "phone_number": phone, "room": room_name, "status": "dispatched"}
-
-
-@app.get("/slots")
-def get_slots() -> list[dict]:
-    """Return the currently available fake consultation slots."""
-    with BOOKING_LOCK:
-        return [slot for slot in SLOTS if slot["id"] not in BOOKED_SLOTS]
-
-
-@app.post("/appointments", response_model=AppointmentResponse, status_code=201)
-def book_appointment(request: AppointmentRequest) -> AppointmentResponse:
-    """Book one fake consultation slot for a known dummy patient."""
-    patient_ids = {patient["id"] for patient in PATIENTS}
-    if request.patient_id not in patient_ids:
-        raise HTTPException(status_code=404, detail="Patient not found")
-
-    if request.slot_id not in SLOT_IDS:
-        raise HTTPException(status_code=404, detail="Appointment slot not found")
-
-    with BOOKING_LOCK:
-        if request.slot_id in BOOKED_SLOTS:
-            raise HTTPException(status_code=409, detail="Appointment slot is no longer available")
-        BOOKED_SLOTS.add(request.slot_id)
-
-    slot = next(slot for slot in SLOTS if slot["id"] == request.slot_id)
-    return AppointmentResponse(
-        confirmation_id=f"confirm-{uuid4().hex[:12]}",
-        patient_id=request.patient_id,
-        slot_id=request.slot_id,
-        provider=slot["provider"],
-        starts_at=slot["starts_at"],
-        duration_minutes=slot["duration_minutes"],
-        status="booked",
-    )
-
-
-@app.get("/health")
-def health_check() -> dict[str, str]:
-    return {"status": "ok", "timestamp": datetime.now().isoformat()}
